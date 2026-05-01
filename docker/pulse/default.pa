@@ -5,6 +5,9 @@
 #
 # This file is read by `pulseaudio --file=...` in the entrypoint.
 # Do NOT load module-native-protocol-tcp - we want everything local.
+#
+# IMPORTANT: PulseAudio's config parser does NOT support line continuations
+# with `\`. Every load-module line must be a single physical line.
 
 # Standard small modules
 load-module module-device-restore
@@ -16,9 +19,7 @@ load-module module-always-sink
 
 # The virtual sink: Chromium and any other app writing to PULSE_SINK=bot_sink
 # end up here; ffmpeg captures from bot_sink.monitor.
-load-module module-null-sink \
-    sink_name=bot_sink \
-    sink_properties=device.description="BotVirtualSink"
+load-module module-null-sink sink_name=bot_sink sink_properties=device.description=BotVirtualSink
 
 # Local Unix socket for clients in the container
 load-module module-native-protocol-unix socket=/tmp/pulse/native auth-anonymous=1
