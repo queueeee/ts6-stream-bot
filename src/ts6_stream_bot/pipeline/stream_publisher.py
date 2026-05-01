@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 from dataclasses import dataclass, field
 
 import structlog
@@ -334,6 +335,23 @@ class StreamPublisher:
 
         offer_sdp = pc.localDescription.sdp
 
+        # Strip ICE candidates whose IP falls in a configured drop network
+        # (default: Docker's bridge gateway range, useless for any external
+        # viewer in host-network mode and bloats the offer past the point
+        # the TS6 server reliably forwards). aiortc keeps the full set
+        # internally - we only trim what we hand to the server.
+        if settings.ICE_DROP_NETWORKS:
+            offer_sdp, dropped = _filter_sdp_candidates(
+                offer_sdp, settings.ICE_DROP_NETWORKS
+            )
+            if dropped:
+                log.info(
+                    "stream_publisher.ice_candidates_filtered",
+                    clid=viewer_clid,
+                    dropped=dropped,
+                    networks=settings.ICE_DROP_NETWORKS,
+                )
+
         # Surface the local ICE candidate set so we can tell at a glance
         # whether STUN/TURN actually contributed anything. The trace we
         # need to debug "ICE failed" almost always boils down to "the bot
@@ -469,6 +487,58 @@ class StreamPublisher:
             await asyncio.sleep(poll)
 
 
+def _filter_sdp_candidates(
+    sdp: str, drop_networks: list[str]
+) -> tuple[str, list[dict[str, str]]]:
+    """Strip a=candidate: lines whose IP sits inside one of ``drop_networks``.
+
+    Returns the rewritten SDP plus the structured list of candidates we
+    threw away (so callers can log them). Invalid CIDR strings are
+    silently ignored - we'd rather miss a filter than crash the join
+    flow over a typo in .env.
+    """
+    parsed_nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for raw in drop_networks:
+        try:
+            parsed_nets.append(ipaddress.ip_network(raw, strict=False))
+        except ValueError:
+            log.warning("stream_publisher.bad_drop_network", value=raw)
+    if not parsed_nets:
+        return sdp, []
+
+    # Preserve the original line endings - WebRTC SDPs are CRLF-terminated
+    # and aiortc / browsers parse strictly.
+    lines = sdp.splitlines(keepends=True)
+    kept: list[str] = []
+    dropped: list[dict[str, str]] = []
+    for line in lines:
+        stripped = line.rstrip("\r\n")
+        if not stripped.startswith("a=candidate:"):
+            kept.append(line)
+            continue
+        parts = stripped[len("a=candidate:") :].split()
+        if len(parts) < 5:
+            kept.append(line)
+            continue
+        ip_str = parts[4]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            kept.append(line)
+            continue
+        if any(ip in net for net in parsed_nets):
+            dropped.append(
+                {
+                    "ip": ip_str,
+                    "port": parts[5] if len(parts) > 5 else "?",
+                    "typ": parts[7] if len(parts) > 7 and parts[6] == "typ" else "?",
+                }
+            )
+            continue
+        kept.append(line)
+    return "".join(kept), dropped
+
+
 def _parse_local_candidates(sdp: str) -> list[dict[str, str]]:
     """Pull the c=...candidate lines out of an SDP into a structured form
     so the diagnostic log shows "what did STUN actually give us"."""
@@ -494,4 +564,5 @@ def _parse_local_candidates(sdp: str) -> list[dict[str, str]]:
 __all__ = [
     "StreamPublisher",
     "StreamPublisherStatus",
+    "_filter_sdp_candidates",
 ]
