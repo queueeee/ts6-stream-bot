@@ -87,6 +87,25 @@ class Settings(BaseSettings):
         description="Max viewers; -1 = unlimited (TS3 convention).",
     )
 
+    # --- WebRTC ICE -------------------------------------------------------
+    # STUN exposes the bot's public-NAT'd address as a server-reflexive
+    # candidate. TURN relays media through a third-party server when
+    # direct NAT punching fails - only needed if your host's NAT is too
+    # restrictive (CGNAT etc.).
+    STUN_URL: str = Field(
+        default="stun:stun.l.google.com:19302",
+        description="STUN server URL (use 'stun:host:port'). Empty = no STUN.",
+    )
+    TURN_URL: str = Field(
+        default="",
+        description=(
+            "Optional TURN server URL (e.g. 'turn:turn.example.com:3478'). "
+            "Required when both peers are behind symmetric NAT."
+        ),
+    )
+    TURN_USERNAME: str = Field(default="", description="TURN auth username.")
+    TURN_PASSWORD: str = Field(default="", description="TURN auth password.")
+
     @field_validator("BOT_API_KEY")
     @classmethod
     def _reject_insecure_api_key(cls, v: str) -> str:
