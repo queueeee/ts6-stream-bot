@@ -235,6 +235,59 @@ async def test_is_alive_true_after_start() -> None:
     await bc.stop()
 
 
+async def test_drain_to_latest_skips_backlog_keeps_newest() -> None:
+    """The MediaPlayer queue grows unbounded if we don't keep up. We
+    pull whatever's already buffered and keep only the newest frame
+    so the source queue never accumulates beyond a single frame.
+    Live regression: 850 MB RAM growth in 16 s under 1080p load
+    came from this exact backlog."""
+    bc = VideoBroadcaster(lambda: _FrameSource(0), _make_config())
+
+    # Fake source with a queue carrying older frames already buffered.
+    class _SourceWithQueue:
+        kind = "video"
+
+        def __init__(self) -> None:
+            self._queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    src = _SourceWithQueue()
+    bc._source = src  # type: ignore[assignment]
+
+    older = MagicMock(name="older-frame")
+    middle = MagicMock(name="middle-frame")
+    latest = MagicMock(name="latest-frame")
+    src._queue.put_nowait(middle)
+    src._queue.put_nowait(latest)
+
+    # ``current`` simulates the frame already taken via recv() before
+    # we noticed the queue was full of stale ones.
+    chosen, dropped = bc._drain_to_latest(older)
+
+    assert chosen is latest
+    assert dropped == 2  # middle + latest were both pulled; older was discarded
+
+
+async def test_drain_to_latest_no_backlog_returns_current() -> None:
+    """When the source queue is empty, the freshly received frame
+    passes through unchanged with no extra drops."""
+    bc = VideoBroadcaster(lambda: _FrameSource(0), _make_config())
+
+    class _SourceWithQueue:
+        kind = "video"
+
+        def __init__(self) -> None:
+            self._queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    src = _SourceWithQueue()
+    bc._source = src  # type: ignore[assignment]
+
+    only = MagicMock(name="only-frame")
+    chosen, dropped = bc._drain_to_latest(only)
+
+    assert chosen is only
+    assert dropped == 0
+
+
 async def test_is_alive_false_after_source_ends() -> None:
     """When the source raises MediaStreamError, the publisher needs to
     know so it can refuse new joins instead of attaching them to a
