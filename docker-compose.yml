@@ -5,26 +5,17 @@
 # voice protocol directly to push the result into a TS6 channel via the
 # server's built-in stream feature. No HLS, no second nginx container.
 #
-# Two networking modes are available via compose profiles:
+# Default networking is the standard ts6-net bridge - simple, isolated, but
+# WebRTC ICE candidate gathering can struggle behind docker NAT (STUN
+# responses don't establish a usable srflx, so peers can't NAT-punch back
+# to the bot). If you hit that, layer the host-network override on top:
 #
-#   * default (profile "bridge"): bot runs in the standard ts6-net bridge.
-#     Simple, isolated, but WebRTC ICE candidate gathering can struggle -
-#     STUN responses to the docker bridge IP often don't establish a
-#     usable srflx candidate, so peers can't NAT-punch back to the bot.
+#     docker compose up -d                                         # bridge
+#     docker compose -f docker-compose.yml \
+#                    -f docker-compose.host.yml up -d               # host net
 #
-#   * profile "host": bot runs in the host network namespace. The host's
-#     real LAN/WAN IPs become the ICE candidates, STUN works normally,
-#     and viewers can reach the bot. Trade-off: shares the host's port
-#     space (8080 must be free on the host), needs the TS6 server
-#     reachable via 127.0.0.1 / a public hostname.
-#
-# Use one or the other, not both:
-#
-#     docker compose --profile bridge up -d   # original behaviour
-#     docker compose --profile host   up -d   # works around ICE failures
-#
-# Without --profile only the bridge service runs (matching prior behaviour
-# so existing setups keep working unchanged).
+# The host overlay drops the bridge network + port mapping and joins the
+# host network namespace so STUN gives the bot real LAN/WAN candidates.
 
 services:
   bot:
@@ -32,7 +23,6 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     container_name: ts6-stream-bot
-    profiles: ["", "bridge"]
     restart: unless-stopped
     env_file: .env
     shm_size: "1gb"
@@ -42,25 +32,6 @@ services:
       - "127.0.0.1:8080:8080"
     networks:
       - ts6-net
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
-  bot-host:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    container_name: ts6-stream-bot
-    profiles: ["host"]
-    restart: unless-stopped
-    env_file: .env
-    shm_size: "1gb"
-    network_mode: host
-    volumes:
-      - ./src:/app/src:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s

@@ -1,0 +1,30 @@
+# Override file: switch the bot to host networking so WebRTC ICE works.
+#
+# Use:
+#     docker compose -f docker-compose.yml -f docker-compose.host.yml up -d
+#
+# Effect:
+#   * The bridge "ts6-net" attachment + the 127.0.0.1:8080 port mapping
+#     are stripped (compose merges by REPLACING list-valued keys when the
+#     overlay sets `null`-valued analogues, but Compose v2 needs the
+#     explicit empty list trick - see below).
+#   * `network_mode: host` joins the bot to the host's network namespace
+#     so it sees the real LAN/WAN interface; STUN now returns a usable
+#     srflx candidate and viewers can NAT-punch back through.
+#
+# Notes for this mode:
+#   * The host's port 8080 must be free (nothing else listening there).
+#   * `TS6_HOST` in .env should resolve from the HOST namespace, not the
+#     bridge: usually 127.0.0.1 if the TS6 server runs on the same host.
+#   * No `ports:` section in host mode (port mapping makes no sense).
+
+services:
+  bot:
+    network_mode: host
+    # Compose v2 needs both the explicit reset and the empty list to drop
+    # the bridge attachment from the base file.
+    networks: !reset null
+    ports: !reset null
+
+networks:
+  ts6-net: !reset null
