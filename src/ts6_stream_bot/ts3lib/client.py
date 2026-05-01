@@ -489,14 +489,29 @@ class Ts3Client:
         try:
             packet_type = PacketType(pt_byte & 0x0F)
         except ValueError:
+            log.debug("ts3.unknown_packet_type", pt_byte=pt_byte, length=len(raw))
             return
         flags = pt_byte & 0xF0
 
+        log.debug(
+            "ts3.packet_in",
+            ptype=packet_type.name,
+            pid=packet_id,
+            flags=hex(flags),
+            length=len(raw),
+        )
         self._last_message_time = time.monotonic()
 
         gen = self._in_generation_counter[int(packet_type)]
         data = self._decrypt_packet(raw, packet_type, packet_id, gen, flags)
         if data is None:
+            log.warning(
+                "ts3.decrypt_failed",
+                ptype=packet_type.name,
+                pid=packet_id,
+                flags=hex(flags),
+                crypto_init=self._crypto_init_complete,
+            )
             return
 
         if packet_type == PacketType.INIT1:
@@ -534,33 +549,43 @@ class Ts3Client:
         if len(data) < 1:
             return
         step = data[0]
+        log.info("ts3.init_step_received", step=step, length=len(data))
 
         if step == 1:
             if len(data) < 21:
+                log.warning("ts3.init1_too_short", length=len(data))
                 return
             init2 = bytearray(4 + 1 + 16 + 4)
             init2[0:4] = INIT_VERSION.to_bytes(4, "big", signed=False)
             init2[4] = 0x02
             init2[5:25] = data[1:21]
             self._init_resend = None
+            log.info("ts3.sending_init2")
             self._send_init_packet(bytes(init2))
 
         elif step == 3:
             if len(data) < 1 + 64 + 64 + 4 + 100:
+                log.warning("ts3.init3_too_short", length=len(data))
                 return
             self._state = ClientState.HANDSHAKE
             self._init_resend = None
 
             x = data[1:65]
             n = data[65:129]
-            level = int.from_bytes(data[129:133], "big", signed=True)
+            puzzle_level = int.from_bytes(data[129:133], "big", signed=True)
             server_data = data[133:233]
 
-            log.info("ts3.rsa_puzzle", level=level)
+            log.info("ts3.rsa_puzzle_start", puzzle_level=puzzle_level)
+            puzzle_t0 = time.monotonic()
             x_big = int.from_bytes(x, "big")
             n_big = int.from_bytes(n, "big")
-            y_big = pow(x_big, 1 << level, n_big)
+            y_big = pow(x_big, 1 << puzzle_level, n_big)
             y = y_big.to_bytes(64, "big")
+            log.info(
+                "ts3.rsa_puzzle_solved",
+                puzzle_level=puzzle_level,
+                seconds=round(time.monotonic() - puzzle_t0, 3),
+            )
 
             self._alpha_tmp = os.urandom(10)
             import base64
@@ -579,17 +604,27 @@ class Ts3Client:
             init4[4] = 0x04
             init4[5:69] = x
             init4[69:133] = n
-            init4[133:137] = level.to_bytes(4, "big", signed=True)
+            init4[133:137] = puzzle_level.to_bytes(4, "big", signed=True)
             init4[137:237] = server_data
             init4[237:301] = y
             init4[301 : 301 + len(text_bytes)] = text_bytes
 
+            log.info(
+                "ts3.sending_init4",
+                total_bytes=len(init4),
+                clientinitiv_bytes=len(text_bytes),
+                omega_b64_len=len(omega),
+            )
             self._send_init_packet(bytes(init4))
 
         elif step == 0x7F:
             # Server requests restart from step 0.
+            log.info("ts3.server_requested_restart")
             self._init_resend = None
             self._send_init_packet(self._build_init0())
+
+        else:
+            log.warning("ts3.unknown_init_step", step=step)
 
     # --- command handling -------------------------------------------------
 
@@ -625,6 +660,7 @@ class Ts3Client:
 
         cmd_str = data.decode("utf-8", errors="replace")
         parsed = parse_command(cmd_str)
+        log.info("ts3.command_received", cmd=parsed.name, length=len(data))
 
         if self.on_command is not None:
             with self._guard():
@@ -772,6 +808,13 @@ class Ts3Client:
             "client_default_token": "",
             "hwid": "",
         }
+        log.info(
+            "ts3.sending_clientinit",
+            nickname=self._opts.nickname,
+            default_channel=self._opts.default_channel or "(server default)",
+            server_password_set=bool(self._opts.server_password),
+            channel_password_set=bool(self._opts.channel_password),
+        )
         self.send_command(build_command("clientinit", params))
 
     def _handle_initserver(self, params: dict[str, str]) -> None:
@@ -843,6 +886,11 @@ class Ts3Client:
                 return
             if now - self._init_resend.last_send > 1.0:
                 self._init_resend.last_send = now
+                log.info(
+                    "ts3.init_resend",
+                    age=round(now - self._init_resend.first_send, 1),
+                    bytes=len(self._init_resend.raw),
+                )
                 self._send_raw(self._init_resend.raw)
 
         for pkt in list(self._resend_map.values()):
