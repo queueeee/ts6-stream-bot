@@ -705,13 +705,10 @@ class Ts3Client:
             # for the 15s connect timeout. After connect, only the known
             # fatal IDs trigger a teardown; everything else is just an ACK
             # to one of our commands.
-            if err_id != 0 and (
-                not self._connected_event.is_set() or err_id in _FATAL_TS3_ERRORS
-            ):
+            if err_id != 0 and (not self._connected_event.is_set() or err_id in _FATAL_TS3_ERRORS):
                 self._emit_error(
                     ConnectionError(
-                        f"TS3 error {err_id}: {err_msg}"
-                        + (f" ({extra_msg})" if extra_msg else "")
+                        f"TS3 error {err_id}: {err_msg}" + (f" ({extra_msg})" if extra_msg else "")
                     )
                 )
                 self.disconnect()

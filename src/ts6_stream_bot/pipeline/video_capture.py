@@ -1,16 +1,18 @@
 """x11grab + PulseAudio capture exposed as aiortc tracks.
 
-Owns two ``MediaPlayer`` instances - one for the X11 framebuffer, one
-for the PulseAudio monitor sink - and surfaces their tracks for the
-stream publisher to attach to per-viewer ``RTCPeerConnection`` objects.
+Surfaces two ``MediaStreamTrack``s for the stream publisher to attach
+to per-viewer ``RTCPeerConnection`` objects:
 
-Why two players: aiortc's ``MediaPlayer`` opens one container at a
-time, but TS6 streams want one Opus + one VP8 track in the same SDP.
-A single combined ``ffmpeg -f x11grab ... -f pulse ...`` invocation
-would give us tight A/V sync, but at the cost of a custom RTP
-demuxer to feed aiortc. Two players is a few dozen ms of drift over
-a session - acceptable for watch-together where everyone sees the
-same drift.
+* Video: aiortc's built-in ``MediaPlayer(format="x11grab")`` over PyAV.
+* Audio: a ``ParecAudioTrack`` we wrote ourselves. PyAV's bundled
+  ffmpeg ships without libpulse so the analogous ``MediaPlayer(
+  format="pulse")`` blows up with ``no container format 'pulse'``.
+  Reading PCM from ``parec`` and re-wrapping it as audio frames is
+  both portable and avoids depending on a specific PyAV build.
+
+Two separate streams give us a few dozen ms of A/V drift over a
+session vs. a single combined ffmpeg invocation; that's acceptable
+for watch-together because everyone sees the same drift.
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from dataclasses import dataclass
 import structlog
 from aiortc.contrib.media import MediaPlayer
 from aiortc.mediastreams import MediaStreamTrack
+
+from ts6_stream_bot.pipeline.parec_audio_track import ParecAudioTrack
 
 log = structlog.get_logger(__name__)
 
@@ -39,19 +43,19 @@ class VideoCaptureConfig:
 class VideoCapture:
     """X11 + PulseAudio capture, exposed as two aiortc tracks.
 
-    Lifecycle: ``start()`` opens the underlying ffmpeg subprocesses,
-    ``stop()`` closes them. ``video_track`` and ``audio_track`` are
-    valid only between those two calls.
+    Lifecycle: ``start()`` opens the underlying capture pipelines,
+    ``stop()`` tears them down. ``video_track`` and ``audio_track``
+    are valid only between those two calls.
     """
 
     def __init__(self, config: VideoCaptureConfig | None = None) -> None:
         self._config = config or VideoCaptureConfig()
         self._video_player: MediaPlayer | None = None
-        self._audio_player: MediaPlayer | None = None
+        self._audio_track: ParecAudioTrack | None = None
 
     @property
     def is_running(self) -> bool:
-        return self._video_player is not None or self._audio_player is not None
+        return self._video_player is not None or self._audio_track is not None
 
     @property
     def video_track(self) -> MediaStreamTrack | None:
@@ -59,10 +63,10 @@ class VideoCapture:
 
     @property
     def audio_track(self) -> MediaStreamTrack | None:
-        return self._audio_player.audio if self._audio_player is not None else None
+        return self._audio_track
 
     async def start(self) -> None:
-        """Open the X11 + Pulse ffmpeg pipelines. Idempotent."""
+        """Open the X11 + Pulse capture pipelines. Idempotent."""
         if self.is_running:
             return
 
@@ -79,16 +83,9 @@ class VideoCapture:
             },
         )
 
-        # Pulse: read from the monitor source so we capture whatever
-        # Chromium plays into bot_sink.
-        self._audio_player = MediaPlayer(
-            c.pulse_source,
-            format="pulse",
-            options={
-                "sample_rate": "48000",
-                "channels": "2",
-            },
-        )
+        # Pulse via parec - PyAV doesn't ship libpulse so we can't use
+        # MediaPlayer(format="pulse") here.
+        self._audio_track = ParecAudioTrack(source=c.pulse_source)
 
         log.info(
             "video_capture.started",
@@ -100,20 +97,19 @@ class VideoCapture:
 
     async def stop(self) -> None:
         """Tear down both players. ``stop()`` is idempotent."""
-        # MediaPlayer.audio / .video return MediaStreamTrack objects that
-        # internally reference the player; calling .stop() on them shuts
-        # down the underlying ffmpeg.
-        for player in (self._video_player, self._audio_player):
-            if player is None:
-                continue
-            for track in (player.audio, player.video):
+        if self._video_player is not None:
+            for track in (self._video_player.audio, self._video_player.video):
                 if track is None:
                     continue
                 with contextlib.suppress(Exception):
                     track.stop()
+            self._video_player = None
 
-        self._video_player = None
-        self._audio_player = None
+        if self._audio_track is not None:
+            with contextlib.suppress(Exception):
+                self._audio_track.stop()
+            self._audio_track = None
+
         log.info("video_capture.stopped")
 
 
