@@ -259,6 +259,32 @@ class StreamPublisher:
 
         pc = RTCPeerConnection()
 
+        # Surface aiortc's own connection-state lifecycle so we can tell
+        # whether a viewer disconnected because their client closed the
+        # tab (TS6 sends notifystreamclientleft) vs. their RTCPeer dying
+        # silently (no signaling, just ICE failure / DTLS timeout). The
+        # latter previously left the slot allocated server-side and made
+        # the user unable to re-join.
+        @pc.on("connectionstatechange")
+        async def _on_connection_state_change() -> None:
+            state = pc.connectionState
+            log.info(
+                "stream_publisher.viewer_pc_state",
+                clid=viewer_clid,
+                state=state,
+                ice=pc.iceConnectionState,
+            )
+            if state in ("failed", "closed"):
+                self._spawn(self._evict_viewer_locally(viewer_clid, stream_id, state))
+
+        @pc.on("iceconnectionstatechange")
+        async def _on_ice_state_change() -> None:
+            log.info(
+                "stream_publisher.viewer_ice_state",
+                clid=viewer_clid,
+                ice=pc.iceConnectionState,
+            )
+
         # Each viewer needs its OWN track that pulls from the shared source
         # via MediaRelay. Sharing the source track directly across PCs makes
         # both senders call recv() concurrently and crashes parec's
@@ -324,6 +350,31 @@ class StreamPublisher:
         log.info("stream_publisher.viewer_reconnect", clid=viewer_clid)
         await self._close_viewer(viewer_clid)
         await self._handle_viewer_join(viewer_clid, self._stream_id)
+
+    async def _evict_viewer_locally(
+        self, viewer_clid: int, stream_id: str, reason: str
+    ) -> None:
+        """Drop a PC that died on aiortc's side (failed/closed) without
+        the server sending notifystreamclientleft. Telling the server to
+        ``removeclientfromstream`` frees the slot so the viewer can
+        retry the join from their UI; otherwise TS6 thinks they're still
+        connected and the bot ignores their next click."""
+        async with self._lock:
+            viewer = self._viewers.pop(viewer_clid, None)
+        if viewer is None:
+            return
+        with contextlib.suppress(Exception):
+            await viewer.pc.close()
+        with contextlib.suppress(Exception):
+            self._signaling.send_remove_client(
+                viewer_clid=viewer_clid, stream_id=stream_id
+            )
+        log.info(
+            "stream_publisher.viewer_evicted",
+            clid=viewer_clid,
+            reason=reason,
+            remaining=len(self._viewers),
+        )
 
     async def _close_viewer(self, viewer_clid: int) -> None:
         async with self._lock:
