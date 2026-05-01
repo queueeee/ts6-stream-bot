@@ -27,7 +27,12 @@ import contextlib
 from dataclasses import dataclass, field
 
 import structlog
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCConfiguration,
+    RTCIceServer,
+    RTCPeerConnection,
+    RTCSessionDescription,
+)
 from aiortc.contrib.media import MediaRelay
 from aiortc.sdp import candidate_from_sdp
 
@@ -257,7 +262,17 @@ class StreamPublisher:
             with contextlib.suppress(Exception):
                 await existing.pc.close()
 
-        pc = RTCPeerConnection()
+        # STUN gives the bot a server-reflexive (srflx) candidate so its own
+        # NAT/Docker-bridge address is publishable. Without it, NAT punching
+        # depended entirely on the viewer's side reaching us, and the live
+        # trace showed the first connection attempt timing out on
+        # ice=checking before completing on the retry. Google's public STUN
+        # is the conventional default.
+        pc = RTCPeerConnection(
+            configuration=RTCConfiguration(
+                iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")],
+            )
+        )
 
         # Surface aiortc's own connection-state lifecycle so we can tell
         # whether a viewer disconnected because their client closed the

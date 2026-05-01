@@ -32,9 +32,14 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # --- Display / capture -------------------------------------------------
+    # 720p30 keeps the per-viewer VP8 encode out of OOM territory on
+    # small hosts. aiortc + PyAV at 1080p30 with even one peer can run a
+    # 4 GB host out of memory (live deploy hit SIGKILL after ~6 s of
+    # streaming). Bump SCREEN_WIDTH/SCREEN_HEIGHT in .env if your host
+    # has the budget; you'll also want to bump STREAM_BITRATE.
     DISPLAY: str = ":99"
-    SCREEN_WIDTH: int = 1920
-    SCREEN_HEIGHT: int = 1080
+    SCREEN_WIDTH: int = 1280
+    SCREEN_HEIGHT: int = 720
     SCREEN_FPS: int = 30
 
     # --- Audio -------------------------------------------------------------
