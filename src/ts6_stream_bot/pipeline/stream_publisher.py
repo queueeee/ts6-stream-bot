@@ -36,6 +36,7 @@ from aiortc import (
 from aiortc.contrib.media import MediaRelay
 from aiortc.sdp import candidate_from_sdp
 
+from ts6_stream_bot.config import settings
 from ts6_stream_bot.pipeline.stream_signaling import (
     SignalingMessage,
     SignalingType,
@@ -52,6 +53,11 @@ class _Viewer:
     clid: int
     pc: RTCPeerConnection
     joined_at: float
+    # remote_set fires once setRemoteDescription has completed for this
+    # viewer. ICE candidates arriving before that event hold off in
+    # `_apply_ice_candidate` instead of being silently rejected by
+    # aiortc with "addIceCandidate called without remote description".
+    remote_set: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 @dataclass(slots=True)
@@ -262,16 +268,23 @@ class StreamPublisher:
             with contextlib.suppress(Exception):
                 await existing.pc.close()
 
-        # STUN gives the bot a server-reflexive (srflx) candidate so its own
-        # NAT/Docker-bridge address is publishable. Without it, NAT punching
-        # depended entirely on the viewer's side reaching us, and the live
-        # trace showed the first connection attempt timing out on
-        # ice=checking before completing on the retry. Google's public STUN
-        # is the conventional default.
-        pc = RTCPeerConnection(
-            configuration=RTCConfiguration(
-                iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")],
+        # STUN exposes the bot's public-NAT'd address as a server-reflexive
+        # candidate. TURN relays media when direct NAT punching fails -
+        # both are env-overridable in case the operator's network needs
+        # something other than Google's public STUN / no-TURN default.
+        ice_servers: list[RTCIceServer] = []
+        if settings.STUN_URL:
+            ice_servers.append(RTCIceServer(urls=settings.STUN_URL))
+        if settings.TURN_URL:
+            ice_servers.append(
+                RTCIceServer(
+                    urls=settings.TURN_URL,
+                    username=settings.TURN_USERNAME or None,
+                    credential=settings.TURN_PASSWORD or None,
+                )
             )
+        pc = RTCPeerConnection(
+            configuration=RTCConfiguration(iceServers=ice_servers) if ice_servers else None
         )
 
         # Surface aiortc's own connection-state lifecycle so we can tell
@@ -340,6 +353,11 @@ class StreamPublisher:
             await viewer.pc.setRemoteDescription(
                 RTCSessionDescription(sdp=answer_sdp, type="answer")
             )
+            # Unblock any ICE candidates that arrived first - aiortc rejects
+            # addIceCandidate calls before setRemoteDescription, and the
+            # signaling layer has no ordering guarantee between the answer
+            # task and the per-candidate tasks once they're both spawned.
+            viewer.remote_set.set()
             log.info("stream_publisher.viewer_connected", clid=viewer_clid)
         except Exception as exc:
             log.exception("stream_publisher.set_answer_failed", clid=viewer_clid, error=str(exc))
@@ -350,6 +368,20 @@ class StreamPublisher:
     ) -> None:
         viewer = self._viewers.get(viewer_clid)
         if viewer is None:
+            return
+        # Wait until setRemoteDescription has completed; aiortc otherwise
+        # rejects the call with "addIceCandidate called without remote
+        # description" and the candidate is lost. The early candidates are
+        # often the only ones that include public srflx info, so losing them
+        # turned every previous ICE attempt into a NAT-punch lottery.
+        try:
+            await asyncio.wait_for(viewer.remote_set.wait(), timeout=10.0)
+        except TimeoutError:
+            log.warning(
+                "stream_publisher.ice_wait_timeout",
+                clid=viewer_clid,
+                detail="remote description never arrived",
+            )
             return
         try:
             candidate = candidate_from_sdp(candidate_sdp)

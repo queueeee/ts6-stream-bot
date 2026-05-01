@@ -324,6 +324,18 @@ async def test_ice_candidate_is_forwarded_to_pc(wired, monkeypatch) -> None:
         if pcs:
             break
 
+    # ICE candidates now wait for the answer to be applied (so aiortc's
+    # "addIceCandidate called without remote description" reject doesn't
+    # eat them). Send the answer first - that flips the per-viewer event
+    # which unblocks queued ICE work.
+    sig.on_signaling_message(  # type: ignore[misc]
+        SignalingMessage(type=SignalingType.ANSWER, sdp="ANSWER_SDP", clid=42, raw="")
+    )
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+        if pcs[0].setRemoteDescription.await_count > 0:
+            break
+
     sig.on_signaling_message(  # type: ignore[misc]
         SignalingMessage(
             type=SignalingType.ICE_CANDIDATE,
@@ -342,6 +354,53 @@ async def test_ice_candidate_is_forwarded_to_pc(wired, monkeypatch) -> None:
     pcs[0].addIceCandidate.assert_awaited_once_with(fake_candidate)
     assert fake_candidate.sdpMid == "0"
     assert fake_candidate.sdpMLineIndex == 0
+
+
+@pytest.mark.asyncio
+async def test_ice_candidate_arriving_before_answer_is_buffered(wired, monkeypatch) -> None:
+    """Regression for the live deploy where every ICE candidate arrived
+    before the answer task finished and aiortc dropped the call. Now
+    candidates wait for the answer via the per-viewer remote_set event."""
+    publisher, client, sig, _capture, pcs = wired
+    publisher._stream_id = "s1"
+    fake_candidate = MagicMock()
+    monkeypatch.setattr(
+        "ts6_stream_bot.pipeline.stream_publisher.candidate_from_sdp",
+        lambda s: fake_candidate,
+    )
+
+    _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+        if pcs:
+            break
+
+    # ICE arrives FIRST (the racy ordering from the live trace).
+    sig.on_signaling_message(  # type: ignore[misc]
+        SignalingMessage(
+            type=SignalingType.ICE_CANDIDATE,
+            candidate="candidate:abc",
+            sdp_mid="0",
+            sdp_mline_index=0,
+            clid=42,
+            raw="",
+        )
+    )
+    # Give the task a chance to run; it should NOT call addIceCandidate yet.
+    for _ in range(5):
+        await asyncio.sleep(0.01)
+    assert pcs[0].addIceCandidate.await_count == 0
+
+    # Now the answer lands and unblocks the queued candidate.
+    sig.on_signaling_message(  # type: ignore[misc]
+        SignalingMessage(type=SignalingType.ANSWER, sdp="ANSWER_SDP", clid=42, raw="")
+    )
+    for _ in range(40):
+        await asyncio.sleep(0.01)
+        if pcs[0].addIceCandidate.await_count > 0:
+            break
+
+    assert pcs[0].addIceCandidate.await_count == 1
 
 
 # --- leave + stop --------------------------------------------------------
