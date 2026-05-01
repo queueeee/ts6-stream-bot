@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import PlainTextResponse, Response
 
-from ts6_stream_bot import __version__
+from ts6_stream_bot import __version__, metrics
 from ts6_stream_bot.api.auth import require_api_key
 from ts6_stream_bot.api.schemas import (
     HealthResponse,
@@ -27,9 +28,18 @@ async def health() -> HealthResponse:
 
 
 @router.get("/status", response_model=StatusResponse, tags=["control"])
-async def status(request: Request) -> StatusResponse:
+async def get_status(request: Request) -> StatusResponse:
     s = await _controller(request).status()
+    metrics.observe_state(s.state.value)
     return StatusResponse(**s.__dict__)
+
+
+@router.get("/metrics", tags=["meta"], response_class=PlainTextResponse)
+async def get_metrics(request: Request) -> PlainTextResponse:
+    s = await _controller(request).status()
+    metrics.observe_state(s.state.value)
+    body, content_type = metrics.render()
+    return PlainTextResponse(content=body, media_type=content_type)
 
 
 @router.post(
@@ -39,8 +49,33 @@ async def status(request: Request) -> StatusResponse:
     dependencies=[Depends(require_api_key)],
 )
 async def play(req: PlayRequest, request: Request) -> StatusResponse:
-    s = await _controller(request).play(url=req.url, room=req.room)
+    metrics.PLAY_REQUESTS.inc()
+    try:
+        s = await _controller(request).play(url=req.url, room=req.room)
+    except Exception:
+        metrics.PLAY_FAILURES.inc()
+        raise
     return StatusResponse(**s.__dict__)
+
+
+@router.get(
+    "/debug/screenshot",
+    tags=["debug"],
+    dependencies=[Depends(require_api_key)],
+    responses={
+        200: {"content": {"image/png": {}}},
+        409: {"description": "no active source"},
+    },
+)
+async def debug_screenshot(request: Request) -> Response:
+    """Return a PNG screenshot of the active page. 409 if no source is open."""
+    png = await _controller(request).screenshot()
+    if png is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="no active source",
+        )
+    return Response(content=png, media_type="image/png")
 
 
 @router.post(

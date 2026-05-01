@@ -24,6 +24,14 @@ from ts6_stream_bot.sources import StreamSource, resolve_source
 log = structlog.get_logger(__name__)
 
 
+class SourceOpenError(Exception):
+    """Raised when a source fails to open or start the capture pipeline.
+
+    Carries the underlying failure so callers can surface it to the user
+    (translated to HTTP 502 by the API layer).
+    """
+
+
 class StreamState(str, Enum):
     IDLE = "idle"
     LOADING = "loading"
@@ -100,7 +108,7 @@ class StreamController:
                 if self._capture is not None:
                     await self._capture.stop()
                     self._capture = None
-                raise
+                raise SourceOpenError(str(exc)) from exc
 
             self._source = source
             self._state = StreamState.PLAYING
@@ -134,6 +142,13 @@ class StreamController:
     async def status(self) -> StreamStatus:
         async with self._lock:
             return self._status_locked()
+
+    async def screenshot(self) -> bytes | None:
+        """Return a PNG screenshot of the active page, or None if no source is open."""
+        async with self._lock:
+            if self._source is None or self._source.page is None:
+                return None
+            return await self._source.page.screenshot(type="png", full_page=False)
 
     # --- internals ---------------------------------------------------------
 

@@ -55,7 +55,8 @@ RUN pip install --no-cache-dir \
     structlog \
     yt-dlp \
     httpx \
-    anyio
+    anyio \
+    prometheus-client
 
 # Playwright browser binaries (chromium only)
 RUN playwright install chromium && \

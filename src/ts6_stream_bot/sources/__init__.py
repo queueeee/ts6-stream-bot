@@ -5,12 +5,14 @@ from __future__ import annotations
 from ts6_stream_bot.sources.base import StreamSource
 from ts6_stream_bot.sources.browser_url import BrowserUrlSource
 from ts6_stream_bot.sources.direct_file import DirectFileSource
+from ts6_stream_bot.sources.twitch import TwitchSource
 from ts6_stream_bot.sources.youtube import YoutubeSource
 
 # Order matters: more specific sources come first. BrowserUrlSource MUST be last
 # because it accepts everything as a fallback.
 SOURCES: list[type[StreamSource]] = [
     YoutubeSource,
+    TwitchSource,
     DirectFileSource,
     BrowserUrlSource,
 ]

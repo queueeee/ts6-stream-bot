@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from ts6_stream_bot.api.routes import router
-from ts6_stream_bot.pipeline import StreamController
+from ts6_stream_bot.pipeline import SourceOpenError, StreamController
 
 log = structlog.get_logger(__name__)
 
@@ -44,6 +44,15 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=422,
             content={"error": "validation_failed", "detail": exc.errors()},
+        )
+
+    @app.exception_handler(SourceOpenError)
+    async def _on_source_open_error(request, exc):  # type: ignore[no-untyped-def]
+        # Source/encoder failure is not an internal bug; surface it cleanly so
+        # the client can react. /status will also reflect state=idle + error.
+        return JSONResponse(
+            status_code=502,
+            content={"error": "source_open_failed", "detail": str(exc)},
         )
 
     @app.exception_handler(Exception)

@@ -9,7 +9,7 @@ This is a developer-friendly skeleton — the streaming/encoding/control plane i
 - **Headful Chromium** in `Xvfb` virtual display (1920x1080), driven by Playwright
 - **HLS output** via ffmpeg (h264 + aac, low-latency mode)
 - **REST API** to drive the bot: `POST /play`, `POST /pause`, `POST /seek`, `GET /status`
-- **Pluggable sources**: abstract `StreamSource` base class; ships with `YoutubeSource`, `DirectFileSource`, `BrowserUrlSource`
+- **Pluggable sources**: abstract `StreamSource` base class; ships with `YoutubeSource`, `TwitchSource`, `DirectFileSource`, `BrowserUrlSource`
 - **Single Docker container** that drops cleanly into your existing `ts6-net` Docker network alongside the TS6 server and manager
 
 ## Architecture (high level)
@@ -55,20 +55,20 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-Once running:
+Once running (replace `<host>` with your server's address; the control API is bound to `127.0.0.1` by default — front it with a reverse proxy if you want it remote):
 
 ```bash
 # Health check
-curl http://193.34.69.21:8080/health
+curl http://<host>:8080/health
 
 # Start playback
-curl -X POST http://193.34.69.21:8080/play \
+curl -X POST http://<host>:8080/play \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BOT_API_KEY" \
   -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
 
 # Users open this URL in their browser to watch:
-# http://193.34.69.21:8081/stream/default/index.m3u8
+# http://<host>:8081/stream/default/index.m3u8
 ```
 
 For voice, users join the configured TS6 channel as usual.

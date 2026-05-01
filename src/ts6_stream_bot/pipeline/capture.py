@@ -28,7 +28,8 @@ class HlsCapture:
         self._proc: asyncio.subprocess.Process | None = None
 
     def _build_args(self) -> list[str]:
-        return [
+        keyframe_interval = settings.SCREEN_FPS * settings.HLS_SEGMENT_DURATION
+        args: list[str] = [
             "ffmpeg",
             "-loglevel", "warning",
             "-nostdin",
@@ -43,14 +44,21 @@ class HlsCapture:
             # Audio input: PulseAudio monitor of bot_sink
             "-f", "pulse",
             "-i", f"{settings.PULSE_SINK}.monitor",
+        ]
 
+        # Optional loudnorm filter to normalise levels across sources.
+        # Single-pass mode is approximate but introduces no extra latency.
+        if settings.AUDIO_LOUDNORM:
+            args += ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"]
+
+        args += [
             # Video encode
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-tune", "zerolatency",
             "-pix_fmt", "yuv420p",
-            "-g", str(settings.SCREEN_FPS * 2),  # keyframe every 2s aligned with HLS segs
-            "-keyint_min", str(settings.SCREEN_FPS * 2),
+            "-g", str(keyframe_interval),
+            "-keyint_min", str(keyframe_interval),
             "-sc_threshold", "0",
 
             # Audio encode
@@ -67,6 +75,7 @@ class HlsCapture:
             "-hls_segment_filename", str(self.output_dir / "seg_%05d.ts"),
             str(self.playlist_path),
         ]
+        return args
 
     async def start(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
