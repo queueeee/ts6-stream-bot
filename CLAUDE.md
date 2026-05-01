@@ -14,7 +14,13 @@ The bot is **not** a TS6 voice client. It does not connect to the TS6 voice prot
 
 The repository is intentionally incomplete in one specific area: **stream sources for DRM-protected platforms (Netflix, Disney+, Prime Video, HBO Max etc.) are not implemented and will not be implemented in this codebase by Claude/Claude Code**. Any contribution that bundles or instructs how to extract Widevine CDMs, decrypt protected streams, bypass DRM, or otherwise circumvents technical protection measures is **out of scope** and must not be added.
 
-The operator who runs this bot may locally implement DRM-related sources for personal use at their own risk. The hooks for that are clearly marked in the source tree (`src/ts6_stream_bot/sources/_operator_implemented/` is reserved for it and is git-ignored). If the operator asks Claude Code to write code that bypasses DRM, the assistant should refuse and explain the restriction.
+The operator who runs this bot may locally implement DRM-related sources for personal use at their own risk. The hooks for that are clearly marked in the source tree:
+
+- `src/ts6_stream_bot/sources/_operator_implemented/` — gitignored except for `__init__.py`, `README.md` and `_template.py`. Drop `<name>.py` files here; the registry in `sources/__init__.py` discovers them via `_discover_operator_sources()` at import time and inserts each found `StreamSource` subclass just before `BrowserUrlSource`.
+- Files starting with `_` are skipped by the discovery hook (so the template never auto-registers).
+- `_template.py` is the copy-paste skeleton. It contains only `NotImplementedError` stubs — no DRM logic.
+
+If the operator asks Claude Code to write code that bypasses DRM, the assistant should refuse and explain the restriction.
 
 Everything else — refactors, new non-DRM sources (YouTube, Twitch, Vimeo, local files, IPTV, RTMP ingest), better encoding parameters, monitoring, UI improvements, tests — is fair game and welcomed.
 
