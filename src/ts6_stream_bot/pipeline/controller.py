@@ -43,7 +43,7 @@ from ts6_stream_bot.pipeline.stream_signaling import StreamSignaling
 from ts6_stream_bot.pipeline.video_capture import VideoCapture, VideoCaptureConfig
 from ts6_stream_bot.sources import StreamSource, resolve_source
 from ts6_stream_bot.ts3lib.client import Ts3Client, Ts3ClientOptions
-from ts6_stream_bot.ts3lib.identity import generate_identity_async
+from ts6_stream_bot.ts3lib.identity_store import load_or_generate_identity
 
 log = structlog.get_logger(__name__)
 
@@ -220,7 +220,10 @@ class StreamController:
             server_password_set=bool(settings.TS6_SERVER_PASSWORD),
             channel_password_set=bool(settings.TS6_CHANNEL_PASSWORD),
         )
-        identity = await generate_identity_async(security_level=8)
+        identity = await load_or_generate_identity(
+            settings.IDENTITY_PATH,
+            security_level=settings.IDENTITY_SECURITY_LEVEL,
+        )
         log.info("controller.ts6_identity_ready", uid=identity.uid)
 
         client = Ts3Client()

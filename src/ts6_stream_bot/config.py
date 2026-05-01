@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -62,6 +64,29 @@ class Settings(BaseSettings):
         description="Channel the bot auto-joins on connect (empty = default channel).",
     )
     TS6_CHANNEL_PASSWORD: str = Field(default="", description="Channel password if any.")
+
+    # --- TS3 identity persistence -----------------------------------------
+    # The TS3 client identity (P-256 keypair + hashcash offset) used to be
+    # regenerated on every container start. That made the TS6 server treat
+    # each restart as a brand-new client; stream slots from previous runs
+    # weren't cleaned up and accumulated as zombies that the UI still
+    # surfaced for join clicks. Persisting the identity to a volume means
+    # the same crypto identity reconnects, the server recognises us, and
+    # any old session is dropped via the normal client-disconnect path.
+    IDENTITY_PATH: Path = Field(
+        default=Path("/app/state/identity.json"),
+        description=(
+            "Where the persistent TS3 identity is stored (JSON, mode 0600). "
+            "Mount a volume over its parent directory to survive restarts."
+        ),
+    )
+    IDENTITY_SECURITY_LEVEL: int = Field(
+        default=8,
+        description=(
+            "Hashcash security level used when generating a fresh identity "
+            "(only for the very first start; existing files are loaded as-is)."
+        ),
+    )
 
     # --- Stream parameters -------------------------------------------------
     # These shape the `setupstream` request the bot sends on connect.

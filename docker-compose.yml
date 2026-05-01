@@ -28,6 +28,12 @@ services:
     shm_size: "1gb"
     volumes:
       - ./src:/app/src:ro
+      # Persists the TS3 client identity across container restarts.
+      # Without this, every restart looks like a brand-new client to the
+      # TS6 server and old stream slots accumulate as zombies that the
+      # client UI still surfaces - clicks on those go nowhere because the
+      # owning clid is long gone. See ts3lib/identity_store.py.
+      - bot-state:/app/state
     ports:
       - "127.0.0.1:8080:8080"
     networks:
@@ -42,3 +48,9 @@ services:
 networks:
   ts6-net:
     external: true
+
+volumes:
+  # Holds /app/state/identity.json (mode 0600). Treat the host-side path
+  # as sensitive: anyone with read access to the volume can impersonate
+  # the bot on the TS6 server.
+  bot-state:
