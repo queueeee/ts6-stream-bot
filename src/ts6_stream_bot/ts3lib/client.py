@@ -687,13 +687,33 @@ class Ts3Client:
                 with self._guard():
                     self.on_text_message(parsed.params)
         elif name == "error":
+            err_id = int(parsed.params.get("id") or "0")
+            err_msg = parsed.params.get("msg", "")
+            extra_msg = parsed.params.get("extra_msg", "")
+            log.info(
+                "ts3.error_ack",
+                error_id=err_id,
+                msg=err_msg,
+                extra_msg=extra_msg,
+                params=parsed.params,
+            )
             if self.on_ts3error is not None:
                 with self._guard():
                     self.on_ts3error(parsed.params)
-            err_id = int(parsed.params.get("id") or "0")
-            if err_id in _FATAL_TS3_ERRORS:
-                msg = parsed.params.get("msg", "unknown error")
-                self._emit_error(ConnectionError(f"TS3 error {err_id}: {msg}"))
+            # During connect (before initserver fires), any non-zero error
+            # means the server rejected us - fail fast instead of waiting
+            # for the 15s connect timeout. After connect, only the known
+            # fatal IDs trigger a teardown; everything else is just an ACK
+            # to one of our commands.
+            if err_id != 0 and (
+                not self._connected_event.is_set() or err_id in _FATAL_TS3_ERRORS
+            ):
+                self._emit_error(
+                    ConnectionError(
+                        f"TS3 error {err_id}: {err_msg}"
+                        + (f" ({extra_msg})" if extra_msg else "")
+                    )
+                )
                 self.disconnect()
 
     # --- crypto handshake -------------------------------------------------
