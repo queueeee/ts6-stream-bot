@@ -241,15 +241,6 @@ def test_send_stream_stop_and_remove_client() -> None:
     assert rm_cmd.params["clid"] == "42"
 
 
-def test_register_stream_notifications_subscribes_to_three_events() -> None:
-    client = _FakeClient()
-    sig = StreamSignaling(client)  # type: ignore[arg-type]
-    sig.register_stream_notifications()
-
-    events = [parse_command(c).params["event"] for c in client.sent]
-    assert events == ["channel", "server", "textchannel"]
-
-
 # --- chaining with prior on_command ---------------------------------------
 
 

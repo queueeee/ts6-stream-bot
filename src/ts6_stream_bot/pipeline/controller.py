@@ -245,7 +245,6 @@ class StreamController:
             return
 
         signaling = StreamSignaling(self._ts3_client)
-        signaling.register_stream_notifications()
 
         capture_config = VideoCaptureConfig(
             display=settings.DISPLAY,
