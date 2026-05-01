@@ -1,0 +1,86 @@
+{
+  "obfuscation_key": "b9dfaa7bee6ac57ac7b65f1094a1c155e747327bc2fe5d51c512023fe54a280201004e90ad1daaae1075d53b7d571c30e063b5a62a4a017bb394833aa0983e6e",
+  "count_leading_zero_bits": [
+    {
+      "input": "",
+      "count": 0
+    },
+    {
+      "input": "00",
+      "count": 8
+    },
+    {
+      "input": "01",
+      "count": 0
+    },
+    {
+      "input": "02",
+      "count": 1
+    },
+    {
+      "input": "04",
+      "count": 2
+    },
+    {
+      "input": "0000ff",
+      "count": 16
+    },
+    {
+      "input": "00000080",
+      "count": 31
+    }
+  ],
+  "bigint_to_buf32": [
+    {
+      "value": "0",
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "value": "1",
+      "hex": "0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "value": "255",
+      "hex": "00000000000000000000000000000000000000000000000000000000000000ff"
+    },
+    {
+      "value": "115792089210356248762697446949407573530086143415290314195533631308867097853951",
+      "hex": "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff"
+    }
+  ],
+  "parse_build_der": [
+    {
+      "x": "3735928559",
+      "y": "62823921008452775918900596207",
+      "der": "301d03020700020120020500deadbeef020d00cafebabe1234567890abcdef",
+      "parsed_bit_info": 0,
+      "parsed_int32": "32",
+      "parsed_x": "3735928559",
+      "parsed_y": "62823921008452775918900596207"
+    }
+  ],
+  "identity_round_trip": [
+    {
+      "privateKeyBigInt": "50867599833774445096567165212045746487925310522711765977665384732843041399303",
+      "keyOffset": "1342",
+      "publicKeyString": "MEwDAgcAAgEgAiBzASTmAA5XVb6LT/cbaxdyx4v8MenaYQPGXEGYH3+PzgIhAMb94xTFpepcRFVR04vvLYA+Hl1i/VUa0MiKW4VRvZQs",
+      "uid": "IalHnI7lPgHPO0y9DaORL4NAmFY=",
+      "base64_key_with_priv": "MG4DAgCAAgEgAiBzASTmAA5XVb6LT/cbaxdyx4v8MenaYQPGXEGYH3+PzgIhAMb94xTFpepcRFVR04vvLYA+Hl1i/VUa0MiKW4VRvZQsAiBwdgqNvc4caq7mxa46bbAg7J5LwrCfxENui1yk40yiBw=="
+    }
+  ],
+  "improve_security": [
+    {
+      "publicKeyString": "ME0DAgcAAgEgAiEA3MEiRl3G8JW528mQ0MFD8912XyWWvlZjIwkTgTlwifICIQDx74dkvf2QGuiZMJzJBCfCysNIAOJDyDdtA/20sLHtVA==",
+      "keyOffset": "6769",
+      "achieved": 14,
+      "target": 12
+    }
+  ],
+  "shared_secret": [
+    {
+      "alice_private": "51359769398270619963670039366257141513557026848521023069016497779379277324205",
+      "bob_public_libtomcrypt_b64": "MEwDAgcAAgEgAiEAt0BkiCpOMK4bMb1Bt1YeGVJX11j3cR4Nxu4Eko62umwCIFpy6OCHN5MfQqW+L0W+ELP1IxToUf8Kpdv4aJ1OkXbs",
+      "expected_secret_hex": "b69138104ecc892eb8d4522bf8cebe2ceca253ef"
+    }
+  ]
+}
