@@ -20,6 +20,7 @@ dependencies = [
     "pynacl>=1.5.0",
     "av>=15.0.0",
     "numpy>=2.0.0",
+    "aiortc>=1.13.0",
 ]
 
 [project.optional-dependencies]
