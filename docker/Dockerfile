@@ -11,6 +11,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # System dependencies:
 # - xvfb: virtual X display
+# - fluxbox: minimal window manager. Without one, Chromium's --kiosk
+#   flag is silently ignored (it relies on EWMH _NET_WM_STATE_FULLSCREEN
+#   hints that no-WM Xvfb has no one to honour) and the captured frame
+#   carries the browser chrome at the top. fluxbox is ~1 MB and the
+#   smallest WM that handles kiosk hints correctly.
 # - pulseaudio + utils: virtual audio sink + monitor source + parec
 # - ffmpeg: x11grab + pulse capture, fed through PyAV/aiortc
 # - libsodium / libssl: needed by PyNaCl + cryptography (most wheels bundle
@@ -19,6 +24,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # - dbus, fonts, etc: chromium runtime needs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
+    fluxbox \
     pulseaudio \
     pulseaudio-utils \
     ffmpeg \
