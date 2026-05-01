@@ -4,12 +4,26 @@ set -euo pipefail
 
 log() { echo "[entrypoint] $*"; }
 
+# Display number stripped of the leading colon, e.g. ":99" -> "99".
+DISPLAY_NUM="${DISPLAY#:}"
+XVFB_LOCK="/tmp/.X${DISPLAY_NUM}-lock"
+XVFB_SOCKET="/tmp/.X11-unix/X${DISPLAY_NUM}"
+
 cleanup() {
   log "shutting down ..."
   [[ -n "${XVFB_PID:-}" ]] && kill "$XVFB_PID" 2>/dev/null || true
   [[ -n "${PULSE_PID:-}" ]] && kill "$PULSE_PID" 2>/dev/null || true
+  # Belt-and-suspenders: if Docker restart-policy is reusing this container
+  # (it does for restart: unless-stopped), /tmp persists between PID 1
+  # restarts. Wipe Xvfb's leftovers so the next start doesn't trip on
+  # "Server is already active for display N".
+  rm -f "$XVFB_LOCK" "$XVFB_SOCKET" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+# Same hygiene up-front, in case the previous run died without our trap firing
+# (e.g. SIGKILL from a crash).
+rm -f "$XVFB_LOCK" "$XVFB_SOCKET" 2>/dev/null || true
 
 # --- Xvfb ------------------------------------------------------------------
 log "starting Xvfb on $DISPLAY (${SCREEN_WIDTH:-1920}x${SCREEN_HEIGHT:-1080}x24)"
@@ -20,13 +34,16 @@ Xvfb "$DISPLAY" \
   &
 XVFB_PID=$!
 
-# Wait until display socket is ready
-for _ in {1..30}; do
-  if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then break; fi
-  sleep 0.2
+# Wait until the display socket exists. We check for the unix socket directly
+# rather than running xdpyinfo, because x11-utils isn't in the runtime image
+# (was the cause of the previous "did not come up in time" loop) and because
+# the socket appearing is a sufficient ready signal for x11grab + Chromium.
+for _ in {1..50}; do
+  if [[ -S "$XVFB_SOCKET" ]]; then break; fi
+  sleep 0.1
 done
-if ! xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
-  log "ERROR: Xvfb did not come up in time"
+if [[ ! -S "$XVFB_SOCKET" ]]; then
+  log "ERROR: Xvfb did not come up in time (no socket at $XVFB_SOCKET)"
   exit 1
 fi
 log "Xvfb ready"
