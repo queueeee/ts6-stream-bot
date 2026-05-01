@@ -254,7 +254,20 @@ class StreamController:
         capture = VideoCapture(capture_config)
         publisher = StreamPublisher(client=self._ts3_client, signaling=signaling, capture=capture)
 
-        await publisher.start(name=f"{settings.TS6_NICKNAME} Stream", bitrate=4608)
+        log.info(
+            "controller.stream_setup",
+            bitrate=settings.STREAM_BITRATE,
+            accessibility=settings.STREAM_ACCESSIBILITY,
+            mode=settings.STREAM_MODE,
+            viewer_limit=settings.STREAM_VIEWER_LIMIT,
+        )
+        await publisher.start(
+            name=f"{settings.TS6_NICKNAME} Stream",
+            bitrate=settings.STREAM_BITRATE,
+            accessibility=settings.STREAM_ACCESSIBILITY,
+            mode=settings.STREAM_MODE,
+            viewer_limit=settings.STREAM_VIEWER_LIMIT,
+        )
 
         self._signaling = signaling
         self._capture = capture
