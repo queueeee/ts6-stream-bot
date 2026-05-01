@@ -941,7 +941,8 @@ class Ts3Client:
                     break
                 self._send_outgoing(b"", PacketType.PING)
                 # Every 10s, log "still alive" with last-incoming-message age
-                # so a complete absence of incoming traffic is unambiguous.
+                # plus resident memory so a creeping leak / OOM trajectory
+                # shows up before docker SIGKILLs us.
                 now = time.monotonic()
                 if now - last_heartbeat >= 10.0:
                     last_heartbeat = now
@@ -949,6 +950,7 @@ class Ts3Client:
                         "ts3.heartbeat",
                         client_id=self._client_id,
                         seconds_since_last_inbound=round(now - self._last_message_time, 1),
+                        rss_mb=_rss_mb(),
                     )
         except asyncio.CancelledError:
             pass
@@ -1009,6 +1011,19 @@ class Ts3Client:
 
 
 # --- helpers ---------------------------------------------------------------
+
+
+def _rss_mb() -> int:
+    """Resident memory in MB for the heartbeat log. Reads /proc/self/status
+    so we don't add a psutil dependency just for this."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return 0
 
 
 class _Ts3DatagramProtocol(asyncio.DatagramProtocol):

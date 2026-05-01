@@ -28,13 +28,23 @@ cleanup() {
   # "Server is already active for display N" / "Daemon already running".
   rm -f "$XVFB_LOCK" "$XVFB_SOCKET" 2>/dev/null || true
   rm -f "${PULSE_PIDS[@]}" 2>/dev/null || true
+  find /run /var/run /root /tmp /home -name "pid" -path "*pulse*" -delete 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 # Same hygiene up-front, in case the previous run died without our trap firing
-# (e.g. SIGKILL from a crash).
+# (e.g. SIGKILL from a crash). When the PREVIOUS run was OOM-killed, the trap
+# never ran, the pid file persists, AND a stray pulseaudio child may still be
+# around inside the same restarted container - so kill any leftover process
+# explicitly before file cleanup, otherwise pulseaudio's "is the pid still
+# alive?" probe returns true and we get "Daemon already running".
+pkill -9 -x pulseaudio 2>/dev/null || true
+pkill -9 -x Xvfb 2>/dev/null || true
+sleep 0.2
 rm -f "$XVFB_LOCK" "$XVFB_SOCKET" 2>/dev/null || true
 rm -f "${PULSE_PIDS[@]}" 2>/dev/null || true
+# Catch any pulse pid files in unexpected XDG_RUNTIME_DIR variants.
+find /run /var/run /root /tmp /home -name "pid" -path "*pulse*" -delete 2>/dev/null || true
 
 # --- Xvfb ------------------------------------------------------------------
 log "starting Xvfb on $DISPLAY (${SCREEN_WIDTH:-1920}x${SCREEN_HEIGHT:-1080}x24)"
