@@ -374,14 +374,29 @@ class VideoBroadcaster:
 
 
 def _auto_thread_count(pixels: int, cpu_count: int) -> int:
-    """Match aiortc's libvpx thread heuristic (vpx.number_of_threads)."""
+    """Pick a libvpx thread count that leaves CPU headroom for the
+    rest of the stack.
+
+    aiortc's vpx encoder picks ``min(cpu_count, 8)`` outright. For us
+    that is too aggressive: when the bot lives on the same host as
+    the TS6 server (the common deployment), libvpx burning every
+    core mid-frame can starve the TS6 process long enough that its
+    own watchdog kills it. We cap at ``cpu_count - 2`` (and at most
+    4 absolute) so the event loop, ffmpeg's reader thread, and the
+    TS6 server always have a core to make progress on. Operators
+    with more headroom can override via ``VideoBroadcasterConfig.thread_count``.
+    """
+    aiortc_pick = 0
     if pixels >= 1920 * 1080:
-        return min(cpu_count, 8)
-    if pixels >= 1280 * 720:
-        return min(cpu_count, 4)
-    if pixels >= 640 * 480:
-        return min(cpu_count, 2)
-    return 1
+        aiortc_pick = 8
+    elif pixels >= 1280 * 720:
+        aiortc_pick = 4
+    elif pixels >= 640 * 480:
+        aiortc_pick = 2
+    else:
+        return 1
+    headroom_pick = max(1, cpu_count - 2)
+    return min(aiortc_pick, headroom_pick, cpu_count, 4)
 
 
 __all__ = [

@@ -269,6 +269,8 @@ class StreamController:
                 width=settings.SCREEN_WIDTH,
                 height=settings.SCREEN_HEIGHT,
                 framerate=settings.SCREEN_FPS,
+                cpu_used=settings.ENCODER_CPU_USED,
+                thread_count=settings.ENCODER_THREAD_COUNT or None,
             ),
         )
         publisher = StreamPublisher(

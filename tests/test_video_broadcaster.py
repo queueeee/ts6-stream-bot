@@ -235,6 +235,29 @@ async def test_is_alive_true_after_start() -> None:
     await bc.stop()
 
 
+def test_auto_thread_count_caps_at_four_and_leaves_headroom() -> None:
+    """Regression: aiortc's vanilla heuristic returned ``min(cpu_count, 8)``
+    for 1080p, which on a 6-vCPU host running TS6 next door starved the
+    TS6 process during keyframes long enough that its watchdog killed
+    it. We never use more than 4 threads and always leave at least 2
+    cores for the rest of the stack."""
+    from ts6_stream_bot.pipeline.video_broadcaster import _auto_thread_count
+
+    px_1080 = 1920 * 1080
+    px_720 = 1280 * 720
+
+    # 6-vCPU box (the live deployment): 1080p capped at 4, not 6/8.
+    assert _auto_thread_count(px_1080, cpu_count=6) == 4
+    # 8-vCPU box: still capped at 4.
+    assert _auto_thread_count(px_1080, cpu_count=8) == 4
+    # Tiny 2-vCPU box: leave one core free even at 1080p.
+    assert _auto_thread_count(px_1080, cpu_count=2) == 1
+    # 720p on a beefy box: 4 threads are enough, less than 1080p's pick.
+    assert _auto_thread_count(px_720, cpu_count=8) == 4
+    # 720p on the live 6-vCPU box: 4 threads, not 6.
+    assert _auto_thread_count(px_720, cpu_count=6) == 4
+
+
 async def test_drain_to_latest_skips_backlog_keeps_newest() -> None:
     """The MediaPlayer queue grows unbounded if we don't keep up. We
     pull whatever's already buffered and keep only the newest frame
