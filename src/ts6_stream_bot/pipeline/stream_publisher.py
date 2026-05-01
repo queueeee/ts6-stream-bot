@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 
 import structlog
 from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc.contrib.media import MediaRelay
 from aiortc.sdp import candidate_from_sdp
 
 from ts6_stream_bot.pipeline.stream_signaling import (
@@ -77,6 +78,10 @@ class StreamPublisher:
         self._lock = asyncio.Lock()
         # Track in-flight tasks so the GC doesn't clean them up mid-flight.
         self._tasks: set[asyncio.Task[None]] = set()
+        # MediaRelay fans out one source track to many per-viewer subscribers
+        # so two PeerConnections don't both call recv() on the same underlying
+        # track at the same time (would race on the parec / x11grab subprocess).
+        self._relay = MediaRelay()
 
         # Wire up signaling callbacks. We chain so existing handlers stay alive.
         self._prev_join = signaling.on_join_stream_request
@@ -254,12 +259,14 @@ class StreamPublisher:
 
         pc = RTCPeerConnection()
 
-        # Attach audio + video tracks. Same track instance can be added
-        # to multiple PCs; aiortc fans out internally.
+        # Each viewer needs its OWN track that pulls from the shared source
+        # via MediaRelay. Sharing the source track directly across PCs makes
+        # both senders call recv() concurrently and crashes parec's
+        # readexactly() with a "another coroutine is already waiting" error.
         if self._capture.video_track is not None:
-            pc.addTrack(self._capture.video_track)
+            pc.addTrack(self._relay.subscribe(self._capture.video_track))
         if self._capture.audio_track is not None:
-            pc.addTrack(self._capture.audio_track)
+            pc.addTrack(self._relay.subscribe(self._capture.audio_track))
 
         try:
             offer = await pc.createOffer()
