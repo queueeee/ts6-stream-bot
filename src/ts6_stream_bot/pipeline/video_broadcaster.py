@@ -47,6 +47,7 @@ from dataclasses import dataclass
 import av
 import structlog
 from aiortc.mediastreams import MediaStreamError, MediaStreamTrack
+from av.frame import Frame
 from av.packet import Packet
 from av.video.codeccontext import VideoCodecContext
 from av.video.frame import PictureType, VideoFrame
@@ -138,6 +139,11 @@ class VideoBroadcaster:
         self._force_keyframe = False
         self._subscribers: list[_Subscriber] = []
         self._encoded_frames = 0
+        # How many frames we discarded because the source queue had
+        # piled up while the encoder was busy. Logged on stop() so an
+        # operator can tell whether their host is keeping up with the
+        # configured resolution / framerate.
+        self._stale_frames_dropped = 0
 
     @property
     def is_alive(self) -> bool:
@@ -184,7 +190,11 @@ class VideoBroadcaster:
                 for _ in self._codec.encode(None):
                     pass
         self._codec = None
-        log.info("video_broadcaster.stopped", encoded_frames=self._encoded_frames)
+        log.info(
+            "video_broadcaster.stopped",
+            encoded_frames=self._encoded_frames,
+            stale_frames_dropped=self._stale_frames_dropped,
+        )
 
     # --- subscription -----------------------------------------------------
 
@@ -265,12 +275,28 @@ class VideoBroadcaster:
 
     async def _pump(self) -> None:
         assert self._source is not None
+        loop = asyncio.get_running_loop()
         while not self._stopped:
             try:
                 frame = await self._source.recv()
             except MediaStreamError:
                 log.info("video_broadcaster.source_ended")
                 return
+
+            # Skip backlog: aiortc's MediaPlayer keeps an unbounded
+            # ``asyncio.Queue`` between the ffmpeg worker thread and our
+            # consumer. If the encoder is even slightly slower than the
+            # source frame rate, raw frames pile up there - at 1080p
+            # that's ~8 MB each (bgr0 from x11grab) and the live deploy
+            # leaked ~850 MB in 16 s before OOM. By draining whatever
+            # extra frames are already queued and keeping only the most
+            # recent one, we cap the backlog to a single frame and drop
+            # stale ones rather than the whole pipeline drowning. The
+            # subscriber-side encoder backlog is independently bounded
+            # by ``queue_size`` per subscriber.
+            frame, dropped = self._drain_to_latest(frame)
+            if dropped:
+                self._stale_frames_dropped += dropped
 
             if not isinstance(frame, VideoFrame):
                 # Source drift - shouldn't happen with x11grab, log and skip.
@@ -287,8 +313,14 @@ class VideoBroadcaster:
                 frame.pict_type = PictureType.I
                 self._force_keyframe = False
 
+            # libvpx's encode is the expensive call. Running it in the
+            # default thread pool lets the event loop keep draining the
+            # source queue (via the next ``self._source.recv()``) while
+            # the encode runs in a worker thread - which is what aiortc
+            # itself does for per-sender encoders in
+            # rtcrtpsender._next_encoded_frame.
             try:
-                packets = list(self._codec.encode(frame))
+                packets = await loop.run_in_executor(None, self._encode_frame, frame)
             except av.error.FFmpegError as exc:
                 log.warning("video_broadcaster.encode_failed", error=str(exc))
                 continue
@@ -296,6 +328,29 @@ class VideoBroadcaster:
             for packet in packets:
                 self._encoded_frames += 1
                 self._fanout(packet)
+
+    def _drain_to_latest(self, current: Frame | Packet) -> tuple[Frame | Packet, int]:
+        """Reach into the source's internal asyncio queue and pull every
+        already-buffered frame. Return the newest one (the rest are
+        discarded). The MediaPlayer track aiortc gives us has a private
+        ``_queue`` attribute - we rely on it being a plain
+        ``asyncio.Queue`` because it has been since aiortc 1.0.x and
+        nothing else exposes a non-blocking peek."""
+        latest = current
+        dropped = 0
+        queue = getattr(self._source, "_queue", None)
+        if queue is None:
+            return latest, dropped
+        while True:
+            try:
+                latest = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return latest, dropped
+            dropped += 1
+
+    def _encode_frame(self, frame: VideoFrame) -> list[Packet]:
+        assert self._codec is not None
+        return list(self._codec.encode(frame))
 
     def _fanout(self, packet: Packet) -> None:
         """Push a packet into every subscriber queue. On QueueFull, drop
