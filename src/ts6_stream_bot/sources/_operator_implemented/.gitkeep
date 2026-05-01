@@ -1,0 +1,11 @@
+# This directory is for the operator's local source implementations.
+# It is git-ignored. Files placed here are NOT shipped with the repository.
+#
+# If you place a custom source here, register it manually at runtime, e.g.:
+#
+#     from ts6_stream_bot.sources import SOURCES
+#     from ts6_stream_bot.sources._operator_implemented.my_source import MySource
+#     SOURCES.insert(0, MySource)   # before the registry is consumed
+#
+# This is the appropriate place for sources that the public codebase
+# intentionally does not provide.

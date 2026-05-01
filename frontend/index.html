@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ts6-stream-bot</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #0b0d0f; color: #e8eaed;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+    }
+    body { display: flex; flex-direction: column; }
+    header { padding: 0.6rem 1rem; border-bottom: 1px solid #222; display: flex; gap: 1rem; align-items: center; }
+    header h1 { font-size: 1rem; margin: 0; opacity: 0.85; font-weight: 500; }
+    header input { flex: 1; background: #14171b; border: 1px solid #2a2f36; color: inherit; padding: 0.4rem 0.6rem; border-radius: 4px; font: inherit; }
+    header button { background: #2a6df4; border: 0; color: white; padding: 0.4rem 0.9rem; border-radius: 4px; cursor: pointer; font: inherit; }
+    main { flex: 1; display: grid; place-items: center; background: #000; }
+    video { max-width: 100%; max-height: 100%; }
+    .pill { padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; background: #2a6df4; }
+    .pill.idle { background: #555; }
+    footer { padding: 0.4rem 1rem; border-top: 1px solid #222; font-size: 0.75rem; opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ts6-stream-bot</h1>
+    <span id="state" class="pill idle">idle</span>
+    <input id="room" placeholder="room (default)" value="default">
+    <button id="load">Watch</button>
+  </header>
+  <main>
+    <video id="player" controls autoplay playsinline muted></video>
+  </main>
+  <footer>
+    <span id="title"></span>
+    &nbsp;
+    <span id="path" style="opacity:0.5"></span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+  <script>
+    const video    = document.getElementById('player');
+    const state    = document.getElementById('state');
+    const titleEl  = document.getElementById('title');
+    const pathEl   = document.getElementById('path');
+    const roomIn   = document.getElementById('room');
+    const loadBtn  = document.getElementById('load');
+    let hls;
+
+    function attach(src) {
+      pathEl.textContent = src;
+      if (hls) { hls.destroy(); hls = null; }
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native (Safari)
+        video.src = src;
+      } else if (window.Hls && Hls.isSupported()) {
+        hls = new Hls({ liveDurationInfinity: true, lowLatencyMode: true });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+      } else {
+        alert('HLS playback not supported in this browser.');
+      }
+    }
+
+    loadBtn.addEventListener('click', () => {
+      const room = (roomIn.value || 'default').trim();
+      attach(`/stream/${encodeURIComponent(room)}/index.m3u8`);
+    });
+
+    // Auto-load default room
+    attach(`/stream/default/index.m3u8`);
+  </script>
+</body>
+</html>

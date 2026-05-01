@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Env
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker / runtime
+hls-output/
+*.log
+
+# Operator-implemented sources are local-only - never commit
+src/ts6_stream_bot/sources/_operator_implemented/*
+!src/ts6_stream_bot/sources/_operator_implemented/.gitkeep
