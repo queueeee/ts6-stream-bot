@@ -32,3 +32,16 @@ class StatusResponse(BaseModel):
 class HealthResponse(BaseModel):
     ok: bool = True
     version: str
+
+
+class PulseSinkInfo(BaseModel):
+    index: int
+    name: str
+    driver: str
+    sample_spec: str
+    state: str
+
+
+class AudioDebugResponse(BaseModel):
+    default_sink: str | None = None
+    sinks: list[PulseSinkInfo] = Field(default_factory=list)

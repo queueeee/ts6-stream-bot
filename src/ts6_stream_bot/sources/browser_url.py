@@ -6,6 +6,7 @@ This is the catch-all fallback. Always last in the SOURCES registry.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import structlog
@@ -63,8 +64,6 @@ class BrowserUrlSource(StreamSource):
 
     async def close(self) -> None:
         if self._page is not None:
-            try:
+            with suppress(Exception):
                 await self._page.close()
-            except Exception:
-                pass
             self._page = None

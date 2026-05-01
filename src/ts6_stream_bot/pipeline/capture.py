@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-from pathlib import Path
 
 import structlog
 
 from ts6_stream_bot.config import settings
+from ts6_stream_bot.utils import paths
+from ts6_stream_bot.utils.proc import drain_stream_to_log, graceful_terminate
 
 log = structlog.get_logger(__name__)
 
@@ -22,13 +23,15 @@ class HlsCapture:
     """Spawns and supervises an ffmpeg process that produces HLS segments."""
 
     def __init__(self, room: str) -> None:
-        self.room = room
-        self.output_dir = settings.HLS_OUTPUT_DIR / room
-        self.playlist_path = self.output_dir / "index.m3u8"
+        self.room = paths.validate_room(room)
+        self.output_dir = paths.hls_dir(self.room)
+        self.playlist_path = paths.hls_playlist(self.room)
         self._proc: asyncio.subprocess.Process | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
 
     def _build_args(self) -> list[str]:
-        return [
+        keyframe_interval = settings.SCREEN_FPS * settings.HLS_SEGMENT_DURATION
+        args: list[str] = [
             "ffmpeg",
             "-loglevel", "warning",
             "-nostdin",
@@ -43,14 +46,21 @@ class HlsCapture:
             # Audio input: PulseAudio monitor of bot_sink
             "-f", "pulse",
             "-i", f"{settings.PULSE_SINK}.monitor",
+        ]
 
+        # Optional loudnorm filter to normalise levels across sources.
+        # Single-pass mode is approximate but introduces no extra latency.
+        if settings.AUDIO_LOUDNORM:
+            args += ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"]
+
+        args += [
             # Video encode
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-tune", "zerolatency",
             "-pix_fmt", "yuv420p",
-            "-g", str(settings.SCREEN_FPS * 2),  # keyframe every 2s aligned with HLS segs
-            "-keyint_min", str(settings.SCREEN_FPS * 2),
+            "-g", str(keyframe_interval),
+            "-keyint_min", str(keyframe_interval),
             "-sc_threshold", "0",
 
             # Audio encode
@@ -64,9 +74,10 @@ class HlsCapture:
             "-hls_time", str(settings.HLS_SEGMENT_DURATION),
             "-hls_list_size", str(settings.HLS_PLAYLIST_SIZE),
             "-hls_flags", "delete_segments+independent_segments+omit_endlist",
-            "-hls_segment_filename", str(self.output_dir / "seg_%05d.ts"),
+            "-hls_segment_filename", paths.hls_segment_pattern(self.room),
             str(self.playlist_path),
         ]
+        return args
 
     async def start(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
@@ -84,38 +95,23 @@ class HlsCapture:
             stderr=asyncio.subprocess.PIPE,
         )
 
-        # Drain stderr so it shows up in our logs
-        asyncio.create_task(self._drain_stderr())
-
-    async def _drain_stderr(self) -> None:
-        if self._proc is None or self._proc.stderr is None:
-            return
-        try:
-            while True:
-                line = await self._proc.stderr.readline()
-                if not line:
-                    break
-                msg = line.decode(errors="replace").rstrip()
-                if msg:
-                    log.info("ffmpeg", msg=msg)
-        except Exception as e:
-            log.warning("capture.stderr_drain_failed", error=str(e))
+        # Drain stderr into our logger; keep a reference so it isn't GC'd.
+        self._stderr_task = asyncio.create_task(
+            drain_stream_to_log(
+                self._proc.stderr,
+                log_event="ffmpeg",
+                extra_kwargs={"room": self.room},
+            )
+        )
 
     async def stop(self) -> None:
         if self._proc is None:
             return
-        if self._proc.returncode is None:
-            log.info("capture.stopping")
-            try:
-                self._proc.terminate()
-                try:
-                    await asyncio.wait_for(self._proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    log.warning("capture.kill_after_timeout")
-                    self._proc.kill()
-                    await self._proc.wait()
-            except ProcessLookupError:
-                pass
+        log.info("capture.stopping", room=self.room)
+        await graceful_terminate(self._proc, timeout=5, name="ffmpeg")
+        if self._stderr_task is not None:
+            self._stderr_task.cancel()
+            self._stderr_task = None
         self._proc = None
 
     @property
@@ -124,4 +120,4 @@ class HlsCapture:
 
     def stream_url_path(self) -> str:
         """The relative URL path nginx serves under."""
-        return f"/stream/{self.room}/index.m3u8"
+        return paths.stream_url_path(self.room)

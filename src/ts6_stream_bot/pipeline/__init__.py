@@ -1,3 +1,7 @@
-from ts6_stream_bot.pipeline.controller import StreamController, StreamState
+from ts6_stream_bot.pipeline.controller import (
+    SourceOpenError,
+    StreamController,
+    StreamState,
+)
 
-__all__ = ["StreamController", "StreamState"]
+__all__ = ["SourceOpenError", "StreamController", "StreamState"]

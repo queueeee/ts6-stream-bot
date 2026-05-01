@@ -11,8 +11,9 @@ State transitions are guarded by an asyncio.Lock so concurrent requests can't ra
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 import structlog
 
@@ -24,7 +25,15 @@ from ts6_stream_bot.sources import StreamSource, resolve_source
 log = structlog.get_logger(__name__)
 
 
-class StreamState(str, Enum):
+class SourceOpenError(Exception):
+    """Raised when a source fails to open or start the capture pipeline.
+
+    Carries the underlying failure so callers can surface it to the user
+    (translated to HTTP 502 by the API layer).
+    """
+
+
+class StreamState(StrEnum):
     IDLE = "idle"
     LOADING = "loading"
     PLAYING = "playing"
@@ -93,14 +102,12 @@ class StreamController:
                 self._error = str(exc)
                 self._state = StreamState.IDLE
                 # Best-effort cleanup
-                try:
+                with suppress(Exception):
                     await source.close()
-                except Exception:
-                    pass
                 if self._capture is not None:
                     await self._capture.stop()
                     self._capture = None
-                raise
+                raise SourceOpenError(str(exc)) from exc
 
             self._source = source
             self._state = StreamState.PLAYING
@@ -134,6 +141,14 @@ class StreamController:
     async def status(self) -> StreamStatus:
         async with self._lock:
             return self._status_locked()
+
+    async def screenshot(self) -> bytes | None:
+        """Return a PNG screenshot of the active page, or None if no source is open."""
+        async with self._lock:
+            if self._source is None or self._source.page is None:
+                return None
+            png: bytes = await self._source.page.screenshot(type="png", full_page=False)
+            return png
 
     # --- internals ---------------------------------------------------------
 

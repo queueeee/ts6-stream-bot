@@ -42,11 +42,12 @@ ts6-stream-bot/
 │   ├── __main__.py                 <- entrypoint: starts FastAPI app
 │   ├── config.py                   <- pydantic Settings, reads .env
 │   ├── logging_setup.py            <- structlog-based logger
+│   ├── metrics.py                  <- Prometheus counters/gauges
 │   │
 │   ├── api/
 │   │   ├── __init__.py
 │   │   ├── app.py                  <- FastAPI factory
-│   │   ├── routes.py               <- REST endpoints (/play, /pause, /status, /health)
+│   │   ├── routes.py               <- REST endpoints (/play, /pause, /status, /health, /metrics, /debug/*)
 │   │   ├── auth.py                 <- X-API-Key check
 │   │   └── schemas.py              <- pydantic request/response models
 │   │
@@ -60,8 +61,9 @@ ts6-stream-bot/
 │   ├── sources/
 │   │   ├── __init__.py             <- registry: maps URL/type -> Source class
 │   │   ├── base.py                 <- abstract StreamSource ABC
-│   │   ├── youtube.py              <- YoutubeSource (uses yt-dlp + browser)
-│   │   ├── direct_file.py          <- DirectFileSource (mp4/mkv from disk)
+│   │   ├── youtube.py              <- YoutubeSource
+│   │   ├── twitch.py               <- TwitchSource (channels + clips)
+│   │   ├── direct_file.py          <- DirectFileSource (mp4/mkv/m3u8 etc.)
 │   │   ├── browser_url.py          <- generic catch-all: just opens any URL in browser
 │   │   └── _operator_implemented/  <- gitignored; for operator-local sources (DRM)
 │   │       └── .gitkeep
@@ -69,18 +71,26 @@ ts6-stream-bot/
 │   └── utils/
 │       ├── __init__.py
 │       ├── proc.py                 <- subprocess management with graceful shutdown
-│       └── paths.py                <- path constants (HLS_DIR, etc.)
+│       └── paths.py                <- HLS filesystem + URL path helpers (single source of truth)
 │
 ├── tests/
 │   ├── conftest.py
 │   ├── test_sources.py             <- unit tests for source resolution
-│   └── test_api.py                 <- FastAPI TestClient tests
+│   ├── test_api.py                 <- FastAPI TestClient tests
+│   ├── test_settings.py            <- Settings validation
+│   ├── test_paths.py               <- HLS path helpers + room validation
+│   └── integration/                <- real-browser tests, skipped unless RUN_INTEGRATION=1
+│       ├── conftest.py
+│       └── test_smoke.py
+│
+├── .github/workflows/
+│   └── ci.yml                      <- ruff + mypy --strict + pytest on push/PR
 │
 ├── frontend/
-│   └── index.html                  <- minimal hls.js player at /
+│   └── index.html                  <- hls.js player + control panel at /
 │
 └── scripts/
-    ├── dev.sh                      <- run locally with mock pipeline
+    ├── dev.sh                      <- prepare Xvfb+Pulse and run the app locally
     └── shell.sh                    <- exec into the running container for debugging
 ```
 
@@ -113,7 +123,7 @@ class StreamSource(ABC):
     def can_handle(cls, url: str) -> bool: ...
 
     @abstractmethod
-    async def open(self, browser: BrowserContext, url: str) -> None: ...
+    async def open(self, context: BrowserContext, url: str) -> None: ...
 
     @abstractmethod
     async def play(self) -> None: ...
@@ -127,8 +137,7 @@ class StreamSource(ABC):
     @abstractmethod
     async def close(self) -> None: ...
 
-    @abstractmethod
-    def title(self) -> str | None: ...
+    def title(self) -> str | None: ...   # concrete; returns self._title
 ```
 
 Sources are registered in `sources/__init__.py` via the `SOURCES` list. URL routing tries each source's `can_handle()` in order; first match wins. The generic `BrowserUrlSource` is always last and always handles, acting as a fallback.
@@ -143,8 +152,8 @@ To add a source, write a new file in `sources/`, subclass `StreamSource`, regist
 ffmpeg outputs HLS segments to `/var/hls/<room>/`. nginx (separate container) serves them on port 8081. Keep the HLS settings (`hls_time`, `hls_list_size`, `hls_flags`) in the config file, do not hard-code them inside `capture.py`.
 
 Encoder defaults:
-- video: `libx264 -preset veryfast -tune zerolatency -g 60`
-- audio: `aac -b:a 128k`
+- video: `libx264 -preset veryfast -tune zerolatency`, keyframe interval `SCREEN_FPS * HLS_SEGMENT_DURATION` (so segment boundaries land on keyframes)
+- audio: `aac -b:a 128k -ar 44100 -ac 2`. Optional `loudnorm` filter via `AUDIO_LOUDNORM=true`.
 - container: HLS, 2-second segments, 6-segment sliding window
 
 These are tuned for ~4 second end-to-end latency. If you change them, document the tradeoff in the PR description.
@@ -162,7 +171,7 @@ All config goes through `config.py` (pydantic-settings reading from `.env`). Nev
 
 ```python
 class Settings(BaseSettings):
-    BOT_API_KEY: str
+    BOT_API_KEY: str         # required; "changeme"/empty rejected at startup
     HLS_OUTPUT_DIR: Path = Path("/var/hls")
     DISPLAY: str = ":99"
     SCREEN_WIDTH: int = 1920
@@ -171,6 +180,7 @@ class Settings(BaseSettings):
     PULSE_SINK: str = "bot_sink"
     HLS_SEGMENT_DURATION: int = 2
     HLS_PLAYLIST_SIZE: int = 6
+    AUDIO_LOUDNORM: bool = False
     LOG_LEVEL: str = "INFO"
     DEFAULT_ROOM: str = "default"
 ```
@@ -182,23 +192,23 @@ Use `structlog`. Every module gets its logger via `log = structlog.get_logger(__
 log.info("source.opened", url=url, source=src.__class__.__name__)
 ```
 
-Don't use `print()`, don't use stdlib `logging` directly, don't f-string log messages — pass kwargs.
+Don't use `print()`, don't use stdlib `logging` directly in module code (only `logging_setup.py` configures stdlib `logging` as a transport for structlog), don't f-string log messages — pass kwargs.
 
 ### Testing
 - `pytest` + `pytest-asyncio`. All async tests use `@pytest.mark.asyncio`.
 - `tests/test_sources.py`: unit-level, no Playwright/Xvfb. Use `unittest.mock`.
 - `tests/test_api.py`: FastAPI `TestClient` against a controller with a mock pipeline.
-- Integration tests that need a real browser are in `tests/integration/` and skipped by default (require Xvfb on the runner).
+- Integration tests that need a real browser are in `tests/integration/` and skipped by default. Set `RUN_INTEGRATION=1` to opt in (requires Xvfb + Chromium on the runner).
 
 Running tests:
 ```bash
-pytest                              # fast unit tests only
-pytest tests/integration/           # requires display + Chromium
+pytest                                              # fast unit tests only
+RUN_INTEGRATION=1 pytest tests/integration/         # requires display + Chromium
 ```
 
 ### Code style
 - Python 3.11+
-- Type hints everywhere. We run `mypy --strict` in CI (not yet configured — TODO).
+- Type hints everywhere. `mypy --strict` runs in CI against `src/`. Tests stay non-strict (fixture indirection produces too many false positives).
 - `ruff` for formatting and linting (see `pyproject.toml`).
 - No 1-letter variable names except classic `i, j, k` in loops.
 - Prefer dataclasses or pydantic models over dicts for any data crossing module boundaries.
@@ -222,14 +232,13 @@ Good reference: `sources/youtube.py`.
 
 ### Run locally for development
 
+`scripts/dev.sh` brings up Xvfb + a PulseAudio sink and then `exec`'s the app — it's a one-shot, not a daemon you leave running in another terminal.
+
 ```bash
-# In one terminal: Xvfb + PulseAudio
+# Single terminal: prepare Xvfb + Pulse, then run the app
 ./scripts/dev.sh
 
-# In another: the API
-uv run python -m ts6_stream_bot
-
-# Hit the API
+# In another terminal: hit the API
 curl localhost:8080/health
 ```
 
@@ -238,7 +247,7 @@ curl localhost:8080/health
 In order:
 1. Is ffmpeg still running? `docker compose exec bot ps aux | grep ffmpeg`
 2. Are HLS segments being written? `docker compose exec bot ls -la /var/hls/default/`
-3. Is the browser stuck? `docker compose exec bot bash` then take a screenshot: `import -window root /tmp/frame.png && cat /tmp/frame.png | base64` (or use Playwright's `page.screenshot()` from the API: see the `/debug/screenshot` endpoint).
+3. Is the browser stuck? Hit `GET /debug/screenshot` (Playwright `page.screenshot()`) — returns a PNG of the current page. Requires `X-API-Key`.
 4. PulseAudio sink alive? `docker compose exec bot pactl list sinks short`
 
 ### Update the encoder settings
@@ -253,14 +262,41 @@ Change defaults in `src/ts6_stream_bot/config.py` (`Settings`). Don't touch `pip
 - Do not introduce a database. State lives in memory in `StreamController`. If you really need persistence (e.g., last-played URL across restarts), use a single JSON file in a volume — not SQLite, not Redis.
 - Do not add authentication beyond the simple `X-API-Key` header. If you need user-level auth, the right answer is to put this behind a reverse proxy that handles it.
 
+## Out of Scope / Architectural Limits
+
+These are not "TODOs to grab" — they are deliberate non-goals or things that
+require a different approach than a code change here.
+
+### Subtitles / closed captions
+HLS itself supports `#EXT-X-MEDIA TYPE=SUBTITLES` with WebVTT segments, so on
+paper this is a TODO. In practice, the capture pipeline grabs the rendered
+**screen** (`x11grab`) — there is no separate subtitle track to multiplex into
+HLS. To make subtitles work you would need a side channel: each `StreamSource`
+extracts subtitle cues from the underlying media and the capture pipeline
+writes them to a parallel `subs.m3u8` playlist. That is real work, not a quick
+plumbing job, and most browser-rendered sources (YouTube, Twitch) burn captions
+into the video frame anyway. If this is wanted, the right starting point is
+`StreamSource` + a new `SubtitleTrack` abstraction; do **not** try to bolt it
+into `pipeline/capture.py` directly.
+
+### Multi-room / multi-stream
+One container runs exactly one Xvfb + one PulseAudio sink + one Chromium. Two
+concurrent streams would either share a display (bad — the browser windows
+would overlap and ffmpeg would capture both) or require parallel Xvfb/Pulse
+setups inside one container (operationally fragile). The supported answer is
+**horizontal scaling**: run more containers, route to them with a small reverse
+proxy (`/stream/<room>/...` → the right container). Do not turn
+`StreamController` into a multi-tenant dispatcher.
+
+### DRM-protected platforms (Netflix, Disney+, Prime Video, HBO Max, …)
+Out of scope, will not be added. See "Operator-Implemented Parts" above.
+
 ## Open TODOs (Good First Tasks)
 
-- `mypy --strict` configuration in `pyproject.toml` and CI workflow
-- A small Vue/HTMX-based control panel under `frontend/` to replace `curl`
-- Subtitle/caption track support (HLS supports it, just need to plumb)
-- Per-source volume normalization via `loudnorm` filter
-- Prometheus `/metrics` endpoint
-- Multi-room support (would require either restructuring `StreamController` or running multiple containers behind a router)
+- Per-source rate-limit / retry on `source.open()` failures
+- A small Vue/HTMX rewrite of `frontend/index.html` (current is hand-written JS)
+- Optional `yt-dlp` URL pre-resolution for cases where the browser-rendered
+  YouTube page is heavier than necessary
 
 ## Contact / Maintainership
 

@@ -7,6 +7,7 @@ the IFrame Player API exposed on the page (window.movie_player or the HTML5 vide
 from __future__ import annotations
 
 import re
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import structlog
@@ -37,11 +38,9 @@ class YoutubeSource(StreamSource):
         self._page = page
         await page.goto(url, wait_until="domcontentloaded")
 
-        # Dismiss the cookie consent banner if present (EU)
-        try:
+        # Dismiss the cookie consent banner if present (EU). Banner is optional.
+        with suppress(Exception):
             await page.locator('button:has-text("Accept all")').first.click(timeout=3000)
-        except Exception:
-            pass  # banner not present, continue
 
         # Wait for the video element to exist
         await page.wait_for_selector("video", timeout=15000)
@@ -81,8 +80,6 @@ class YoutubeSource(StreamSource):
 
     async def close(self) -> None:
         if self._page is not None:
-            try:
+            with suppress(Exception):
                 await self._page.close()
-            except Exception:
-                pass
             self._page = None
