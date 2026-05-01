@@ -28,5 +28,10 @@ hls-output/
 *.log
 
 # Operator-implemented sources are local-only - never commit
+# (but keep the discovery package marker, README and skeleton template
+# tracked so the wiring works out of the box on a fresh clone)
 src/ts6_stream_bot/sources/_operator_implemented/*
 !src/ts6_stream_bot/sources/_operator_implemented/.gitkeep
+!src/ts6_stream_bot/sources/_operator_implemented/__init__.py
+!src/ts6_stream_bot/sources/_operator_implemented/README.md
+!src/ts6_stream_bot/sources/_operator_implemented/_template.py
