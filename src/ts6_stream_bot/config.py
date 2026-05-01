@@ -58,6 +58,30 @@ class Settings(BaseSettings):
     )
     TS6_CHANNEL_PASSWORD: str = Field(default="", description="Channel password if any.")
 
+    # --- Stream parameters -------------------------------------------------
+    # These shape the `setupstream` request the bot sends on connect.
+    # Defaults match what the TS6 client UI uses for a normal screen-share.
+    STREAM_BITRATE: int = Field(default=4608, description="Stream bitrate hint (kbps).")
+    STREAM_ACCESSIBILITY: int = Field(
+        default=0,
+        description=(
+            "0 = public (anyone in the channel can join), "
+            "1 = restricted (requires explicit allow per-viewer)."
+        ),
+    )
+    STREAM_MODE: int = Field(
+        default=1,
+        description=(
+            "1 = request-based join (server forwards notifyjoinstreamrequest "
+            "to the bot for each viewer; bot replies via "
+            "respondjoinstreamrequest). 0 = auto-accept."
+        ),
+    )
+    STREAM_VIEWER_LIMIT: int = Field(
+        default=-1,
+        description="Max viewers; -1 = unlimited (TS3 convention).",
+    )
+
     @field_validator("BOT_API_KEY")
     @classmethod
     def _reject_insecure_api_key(cls, v: str) -> str:
