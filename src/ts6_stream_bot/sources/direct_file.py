@@ -50,7 +50,9 @@ class DirectFileSource(StreamSource):
         log.info("directfile.open", url=url)
         page = await context.new_page()
         self._page = page
-        await page.set_content(_PLAYER_HTML.format(url=url, title=url), wait_until="domcontentloaded")
+        await page.set_content(
+            _PLAYER_HTML.format(url=url, title=url), wait_until="domcontentloaded"
+        )
         await page.wait_for_selector("video#v", timeout=10000)
         # Don't autoplay - controller calls play() explicitly
         await page.evaluate("document.querySelector('#v').pause()")

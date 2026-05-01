@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from ts6_stream_bot.api.routes import router
 from ts6_stream_bot.pipeline import SourceOpenError, StreamController
+
+# Serve the control UI alongside the API. The container places /app/frontend
+# next to /app/src; this resolves to the shipped index.html.
+_FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
 
 log = structlog.get_logger(__name__)
 
@@ -38,6 +44,19 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router)
+
+    # Mount the control UI at "/" if the directory ships - skip silently
+    # otherwise (the project is still useful headlessly).
+    if _FRONTEND_DIR.is_dir():
+        app.mount(
+            "/static",
+            StaticFiles(directory=_FRONTEND_DIR),
+            name="static",
+        )
+
+        @app.get("/", include_in_schema=False)
+        async def _index() -> FileResponse:
+            return FileResponse(_FRONTEND_DIR / "index.html")
 
     @app.exception_handler(RequestValidationError)
     async def _on_validation_error(request, exc):  # type: ignore[no-untyped-def]

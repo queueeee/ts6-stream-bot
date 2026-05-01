@@ -44,7 +44,7 @@ class BrowserManager:
         self._browser = await self._pw.chromium.launch(
             headless=False,
             args=[
-                "--no-sandbox",                       # required in container
+                "--no-sandbox",  # required in container
                 "--disable-dev-shm-usage",
                 # Hardware acceleration is fully disabled - x11grab can only
                 # capture what lands in the X11 framebuffer, which means we
@@ -61,7 +61,7 @@ class BrowserManager:
                 f"--window-size={settings.SCREEN_WIDTH},{settings.SCREEN_HEIGHT}",
                 "--window-position=0,0",
                 "--start-maximized",
-                "--kiosk",                            # fullscreen, no chrome
+                "--kiosk",  # fullscreen, no chrome
             ],
             env=env,
         )

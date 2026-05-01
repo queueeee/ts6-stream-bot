@@ -242,7 +242,9 @@ class Ts3Client:
         """Send a polite ``clientdisconnect`` then close the socket."""
         if self._state == ClientState.CONNECTED:
             self._state = ClientState.DISCONNECTING
-            self.send_command(build_command("clientdisconnect", {"reasonid": 8, "reasonmsg": "leaving"}))
+            self.send_command(
+                build_command("clientdisconnect", {"reasonid": 8, "reasonmsg": "leaving"})
+            )
         if self._loop is not None:
             self._loop.call_later(0.5, self._cleanup)
 
@@ -273,7 +275,9 @@ class Ts3Client:
 
         chunks = [data[i : i + _MAX_OUT_CONTENT] for i in range(0, len(data), _MAX_OUT_CONTENT)]
         cmd_name = cmd.split(" ", 1)[0]
-        log.info("ts3.command_fragmented", cmd=cmd_name, total_bytes=len(data), fragments=len(chunks))
+        log.info(
+            "ts3.command_fragmented", cmd=cmd_name, total_bytes=len(data), fragments=len(chunks)
+        )
 
         # TS3 fragmentation flag: set on the FIRST and LAST fragment only.
         for i, chunk in enumerate(chunks):
@@ -319,7 +323,9 @@ class Ts3Client:
         raw_buf[:MAC_LEN] = INIT_MAC[:MAC_LEN]
         raw_bytes = bytes(raw_buf)
         now = time.monotonic()
-        self._init_resend = _ResendPacket(raw=raw_bytes, packet_id=101, first_send=now, last_send=now)
+        self._init_resend = _ResendPacket(
+            raw=raw_bytes, packet_id=101, first_send=now, last_send=now
+        )
         self._send_raw(raw_bytes)
 
     def _send_outgoing(self, data: bytes, packet_type: PacketType, extra_flags: int = 0) -> None:
@@ -496,16 +502,17 @@ class Ts3Client:
         if packet_type == PacketType.INIT1:
             self._handle_init(data)
         elif packet_type in (PacketType.COMMAND, PacketType.COMMAND_LOW):
-            ack_type = (
-                PacketType.ACK if packet_type == PacketType.COMMAND else PacketType.ACK_LOW
-            )
+            ack_type = PacketType.ACK if packet_type == PacketType.COMMAND else PacketType.ACK_LOW
             self._send_ack(packet_id, ack_type)
             self._handle_command_data(data, flags)
         elif packet_type == PacketType.ACK:
             self._handle_ack(data)
         elif packet_type == PacketType.PING:
             self._handle_ping(packet_id)
-        elif packet_type in (PacketType.VOICE, PacketType.VOICE_WHISPER) and self.on_voice is not None:
+        elif (
+            packet_type in (PacketType.VOICE, PacketType.VOICE_WHISPER)
+            and self.on_voice is not None
+        ):
             with self._guard():
                 self.on_voice(data)
 
@@ -562,7 +569,9 @@ class Ts3Client:
             assert self._opts is not None
             omega = self._opts.identity.public_key_string
 
-            init_add = build_command("clientinitiv", {"alpha": alpha, "omega": omega, "ot": 1, "ip": ""})
+            init_add = build_command(
+                "clientinitiv", {"alpha": alpha, "omega": omega, "ot": 1, "ip": ""}
+            )
             text_bytes = init_add.encode("utf-8")
 
             init4 = bytearray(4 + 1 + 64 + 64 + 4 + 100 + 64 + len(text_bytes))

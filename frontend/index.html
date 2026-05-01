@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ts6-stream-bot control</title>
+  <style>
+    :root { color-scheme: dark; --accent: #2a6df4; --bg: #0b0d0f; --panel: #14171b; --border: #2a2f36; --muted: #8a8f96; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; min-height: 100vh; background: var(--bg); color: #e8eaed; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; align-items: center; padding: 1.5rem; gap: 1rem; }
+    h1 { font-size: 1.05rem; font-weight: 500; margin: 0; opacity: 0.8; }
+    .panel { width: 100%; max-width: 480px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; display: flex; flex-direction: column; gap: 0.7rem; }
+    .row { display: flex; gap: 0.4rem; }
+    .row > * { flex: 1; }
+    label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    input, button { background: #0e1115; border: 1px solid var(--border); color: inherit; padding: 0.45rem 0.7rem; border-radius: 4px; font: inherit; width: 100%; }
+    button { cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    button:hover:not(:disabled) { filter: brightness(1.15); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; background: #555; text-transform: lowercase; }
+    .pill.playing { background: #2ea043; }
+    .pill.loading { background: #d29922; }
+    .pill.paused  { background: #6e7681; }
+    .pill.idle    { background: #555; }
+    .pill.connected { background: #2ea043; }
+    .pill.disconnected { background: #b32a2a; }
+    .info { font-size: 0.85rem; color: var(--muted); word-break: break-all; }
+    .info b { color: #e8eaed; font-weight: 500; }
+    .err { color: #ff6b6b; font-size: 0.8rem; min-height: 1em; }
+    .status-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 1rem; font-size: 0.85rem; }
+    .status-grid dt { color: var(--muted); }
+    .hint { font-size: 0.85rem; color: var(--muted); line-height: 1.4; }
+    .hint code { background: #0e1115; padding: 0 0.3rem; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>ts6-stream-bot</h1>
+
+  <div class="panel">
+    <p class="hint">
+      The bot pushes video into your TS6 channel as a stream - viewers join
+      the stream from inside the TeamSpeak client. This page is just the
+      control surface (play / pause / stop / etc.).
+    </p>
+  </div>
+
+  <div class="panel">
+    <label>Status</label>
+    <dl class="status-grid">
+      <dt>Source</dt>          <dd><span id="state" class="pill idle">idle</span> <span id="title"></span></dd>
+      <dt>TS6</dt>             <dd><span id="ts6-pill" class="pill disconnected">disconnected</span> <span class="info" id="ts6-meta"></span></dd>
+      <dt>Stream</dt>          <dd class="info" id="stream-meta">none</dd>
+      <dt>Viewers</dt>         <dd class="info" id="viewer-count">0</dd>
+    </dl>
+    <div class="info" id="status-extra"></div>
+  </div>
+
+  <div class="panel">
+    <label for="apiKey">API key</label>
+    <input id="apiKey" type="password" placeholder="X-API-Key" autocomplete="off">
+
+    <label for="url">Source URL</label>
+    <input id="url" placeholder="YouTube / Twitch / mp4 URL">
+
+    <div class="row">
+      <button id="play" class="primary">Play</button>
+      <button id="stop">Stop</button>
+    </div>
+    <div class="row">
+      <button id="pause">Pause</button>
+      <button id="resume">Resume</button>
+    </div>
+    <div class="row">
+      <input id="seekSec" type="number" min="0" step="1" placeholder="seconds">
+      <button id="seek">Seek</button>
+    </div>
+
+    <div class="err" id="err"></div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const stateEl  = $('state');
+    const titleEl  = $('title');
+    const ts6Pill  = $('ts6-pill');
+    const ts6Meta  = $('ts6-meta');
+    const streamMeta = $('stream-meta');
+    const viewerEl = $('viewer-count');
+    const extraEl  = $('status-extra');
+    const errEl    = $('err');
+    const apiKeyIn = $('apiKey');
+    const urlIn    = $('url');
+
+    apiKeyIn.value = localStorage.getItem('ts6_api_key') || '';
+    apiKeyIn.addEventListener('change', () => localStorage.setItem('ts6_api_key', apiKeyIn.value));
+
+    function showErr(msg) {
+      errEl.textContent = msg || '';
+      if (msg) console.warn('[ts6]', msg);
+    }
+
+    function renderStatus(s) {
+      stateEl.textContent = s.state;
+      stateEl.className = 'pill ' + s.state;
+      titleEl.textContent = s.title || '';
+
+      const connected = !!s.ts6_connected;
+      ts6Pill.textContent = connected ? 'connected' : 'disconnected';
+      ts6Pill.className = 'pill ' + (connected ? 'connected' : 'disconnected');
+      ts6Meta.textContent = connected && s.ts6_client_id ? `clid ${s.ts6_client_id}` : '';
+
+      if (s.streaming && s.stream_id) {
+        streamMeta.innerHTML = `<b>${s.stream_id}</b>`;
+      } else {
+        streamMeta.textContent = 'none';
+      }
+      viewerEl.textContent = String(s.viewer_count ?? 0);
+
+      extraEl.innerHTML =
+        (s.source_class ? `<b>${s.source_class}</b><br>` : '') +
+        (s.url ? `<a href="${s.url}" target="_blank" style="color: inherit;">${s.url}</a><br>` : '') +
+        (s.error ? `<span style="color:#ff6b6b">${s.error}</span>` : '');
+    }
+
+    async function api(method, path, body) {
+      const headers = { 'Accept': 'application/json' };
+      if (body) headers['Content-Type'] = 'application/json';
+      const key = apiKeyIn.value.trim();
+      if (key) headers['X-API-Key'] = key;
+      const resp = await fetch(path, {
+        method, headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let data = null;
+      try { data = await resp.json(); } catch { /* not JSON */ }
+      if (!resp.ok) {
+        const detail = data?.detail || data?.error || resp.statusText;
+        throw new Error(`${resp.status} ${detail}`);
+      }
+      return data;
+    }
+
+    async function refreshStatus() {
+      try {
+        renderStatus(await api('GET', '/status'));
+      } catch (e) {
+        showErr('status: ' + e.message);
+      }
+    }
+
+    function withErr(fn) {
+      return async () => {
+        showErr('');
+        try { renderStatus(await fn()); } catch (e) { showErr(e.message); }
+      };
+    }
+
+    $('play').addEventListener('click', withErr(async () => {
+      const url = urlIn.value.trim();
+      if (!url) throw new Error('URL is empty');
+      return await api('POST', '/play', { url });
+    }));
+    $('pause').addEventListener('click',  withErr(() => api('POST', '/pause')));
+    $('resume').addEventListener('click', withErr(() => api('POST', '/resume')));
+    $('stop').addEventListener('click',   withErr(() => api('POST', '/stop')));
+    $('seek').addEventListener('click',   withErr(() => {
+      const seconds = parseInt($('seekSec').value, 10);
+      if (Number.isNaN(seconds) || seconds < 0) throw new Error('invalid seek seconds');
+      return api('POST', '/seek', { seconds });
+    }));
+
+    refreshStatus();
+    setInterval(refreshStatus, 3000);
+  </script>
+</body>
+</html>

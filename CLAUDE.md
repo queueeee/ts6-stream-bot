@@ -23,26 +23,42 @@ This is a deliberate change from the project's earlier HLS-based design:
 running a separate HLS player per viewer turned out to be the wrong UX,
 and TS6 has the streaming infrastructure built in.
 
-## Architecture pivot in progress
+## Architecture pivot status
 
-This codebase is being migrated from "HLS output for browser players" to
-"native TS6 client output." Phase 0 has stripped the old HLS pipeline
-entirely (no `capture.py`, no nginx, no `/var/hls`). Phases 1–3 add the
-new output stack. Phase 4 rewires `StreamController` and the public API.
-
-Until phase 4 is done, `POST /play` opens a source in Chromium but
-**produces no audible/visible output to TS6** — the controller renders
-the page and that's it.
+The migration from "HLS output for browser players" to "native TS6
+client output" is complete in code; live validation against a real TS6
+server is the next step (the operator's job, since this codebase has
+no test server).
 
 ### Phases
 
 | Phase | Scope | State |
 |---|---|---|
 | 0 | Tear out HLS pipeline, gut controller, document new direction | Done |
-| 1 | Port `ts6-manager`'s tslib (TS3 voice protocol) to Python | In progress |
-| 2 | PulseAudio capture → Opus → TS3 voice frames into a channel | Pending |
-| 3 | aiortc WebRTC + stream signaling + x11grab → VP8/Opus per viewer | Pending |
-| 4 | Rewire `StreamController` end-to-end, minimal frontend / control UI | Pending |
+| 1 | Port `ts6-manager`'s tslib (TS3 voice protocol) to Python | Done |
+| 2 | PulseAudio capture → Opus → TS3 voice frames into a channel | Done |
+| 3 | aiortc WebRTC + stream signaling + x11grab → VP8/Opus per viewer | Done |
+| 4 | Rewire `StreamController` end-to-end, minimal frontend / control UI | Done |
+
+Set `TS6_HOST` in `.env` to enable the TS6 output. With it empty the
+controller still works for source debugging — Chromium renders the
+page, no output is pushed.
+
+### What ``POST /play`` does end-to-end
+
+1. ``StreamController.startup`` already brought up the browser, generated
+   an identity (hashcash level 8, in a worker thread), connected to TS6
+   over UDP, and called ``setupstream`` to allocate one persistent stream.
+2. ``play(url)`` resolves the URL to a ``StreamSource``, opens it inside
+   Chromium, calls ``source.play()``.
+3. The source renders into the X11 framebuffer and audio into the
+   PulseAudio sink. ``VideoCapture`` is already feeding both into aiortc
+   as live media tracks.
+4. Any viewer who joins the stream from inside their TS6 client triggers
+   ``notifyjoinstreamrequest`` → ``StreamPublisher`` builds a per-viewer
+   ``RTCPeerConnection``, attaches the same shared tracks, exchanges SDP
+   + ICE through ``streamsignaling``, and the viewer starts seeing
+   what's on the bot's screen.
 
 ### Upstream we're porting from
 
@@ -102,15 +118,19 @@ ts6-stream-bot/
 │   │   ├── __init__.py
 │   │   ├── controller.py             <- StreamController state machine
 │   │   ├── browser.py                <- Playwright browser lifecycle
-│   │   └── audio.py                  <- PulseAudio sink helpers (introspection)
+│   │   ├── audio.py                  <- PulseAudio sink helpers (introspection)
+│   │   ├── audio_capture.py          <- PulseAudio -> Opus -> TS3 voice frames
+│   │   ├── video_capture.py          <- x11grab + Pulse via aiortc MediaPlayers
+│   │   ├── stream_signaling.py       <- TS6 stream signaling (setupstream etc.)
+│   │   └── stream_publisher.py       <- Per-viewer aiortc RTCPeerConnection
 │   │
-│   ├── ts3lib/                       <- (phase 1) TS3 voice client - ported from ts6-manager tslib/
-│   │   ├── crypto.py
-│   │   ├── identity.py
-│   │   ├── license.py
-│   │   ├── quicklz.py
-│   │   ├── commands.py
-│   │   └── client.py
+│   ├── ts3lib/                       <- TS3 voice client - ported from ts6-manager tslib/
+│   │   ├── crypto.py                 <- AES-CMAC, EAX, SHA, ECDSA, derive_key_nonce
+│   │   ├── identity.py               <- P-256 keypair + hashcash + libtomcrypt DER
+│   │   ├── license.py                <- Ed25519 license-chain derivation
+│   │   ├── quicklz.py                <- Level-1 decompression
+│   │   ├── commands.py               <- TS3 wire format escape/parse/build
+│   │   └── client.py                 <- UDP voice client + handshake
 │   │
 │   ├── sources/
 │   │   ├── __init__.py               <- SOURCES registry + operator-source discovery
@@ -343,14 +363,19 @@ Good reference: `sources/youtube.py`, `sources/twitch.py`.
 curl localhost:8080/health
 ```
 
-### Debug "source opens but nothing happens"
+### Debug "source plays but no viewers see it"
 
-Until phase 2/3 land, this is expected — sources render in Chromium but
-nothing is sent to TS6 yet. To verify the renderer:
-- `GET /debug/screenshot` returns a PNG of the current page (requires
-  `X-API-Key`).
-- `GET /debug/audio` lists PulseAudio sinks; `bot_sink` should be
-  present and `RUNNING`.
+In order:
+1. ``GET /status`` should show ``ts6_connected: true`` and a non-empty
+   ``stream_id``. If not, check the TS6_* env vars and the bot logs.
+2. Look for ``controller.ts6_connected`` and ``stream_publisher.started``
+   in the structlog output at startup.
+3. Inside the TS6 client, the bot should appear in its configured
+   channel and the channel should advertise an active stream that
+   viewers can join.
+4. If the stream connects but stays black: ``GET /debug/screenshot``
+   shows what Chromium is rendering; ``GET /debug/audio`` lists the
+   PulseAudio sinks (``bot_sink`` should be ``RUNNING``).
 
 ## Things Not To Do
 

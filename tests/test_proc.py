@@ -29,7 +29,9 @@ async def test_run_capture_propagates_returncode() -> None:
 @pytest.mark.asyncio
 async def test_graceful_terminate_sigterm_path() -> None:
     proc = await asyncio.create_subprocess_exec(
-        "sh", "-c", "sleep 30",
+        "sh",
+        "-c",
+        "sleep 30",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -42,7 +44,9 @@ async def test_graceful_terminate_sigkill_fallback() -> None:
     # Python child that explicitly ignores SIGTERM, forcing the SIGKILL fallback.
     # We wait on a "ready" line so we don't race the interpreter startup vs the SIGTERM.
     proc = await asyncio.create_subprocess_exec(
-        "python3", "-u", "-c",
+        "python3",
+        "-u",
+        "-c",
         "import signal, sys, time;"
         " signal.signal(signal.SIGTERM, signal.SIG_IGN);"
         " sys.stdout.write('ready\\n'); sys.stdout.flush(); time.sleep(30)",
@@ -61,7 +65,9 @@ async def test_graceful_terminate_sigkill_fallback() -> None:
 @pytest.mark.asyncio
 async def test_graceful_terminate_already_dead_is_noop() -> None:
     proc = await asyncio.create_subprocess_exec(
-        "sh", "-c", "exit 0",
+        "sh",
+        "-c",
+        "exit 0",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )

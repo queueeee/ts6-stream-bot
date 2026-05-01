@@ -24,6 +24,11 @@ def mock_controller():
             url="https://www.youtube.com/watch?v=test",
             title="Test",
             source_class="YoutubeSource",
+            ts6_connected=True,
+            ts6_client_id=42,
+            streaming=True,
+            stream_id="stream-1",
+            viewer_count=2,
         )
     )
     mock.pause = AsyncMock(return_value=StreamStatus(state=StreamState.PAUSED))
