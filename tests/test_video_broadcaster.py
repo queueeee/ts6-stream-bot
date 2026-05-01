@@ -215,3 +215,38 @@ async def test_start_raises_when_factory_returns_none() -> None:
     bc = VideoBroadcaster(lambda: None, _make_config())
     with pytest.raises(RuntimeError):
         await bc.start()
+
+
+# --- is_alive ------------------------------------------------------------
+
+
+async def test_is_alive_false_before_start() -> None:
+    bc = VideoBroadcaster(lambda: _FrameSource(0), _make_config())
+    assert bc.is_alive is False
+
+
+async def test_is_alive_true_after_start() -> None:
+    """``start()`` schedules the pump but doesn't drain the source -
+    is_alive must already be True so concurrent join requests can
+    attach without racing against the very first encoded frame."""
+    bc = VideoBroadcaster(lambda: _FrameSource(1000), _make_config())
+    await bc.start()
+    assert bc.is_alive is True
+    await bc.stop()
+
+
+async def test_is_alive_false_after_source_ends() -> None:
+    """When the source raises MediaStreamError, the publisher needs to
+    know so it can refuse new joins instead of attaching them to a
+    queue nothing will ever fill."""
+    bc = VideoBroadcaster(lambda: _FrameSource(1), _make_config())
+    await bc.start()
+
+    # Wait for the pump to drain its single frame and exit.
+    for _ in range(50):
+        await asyncio.sleep(0.02)
+        if not bc.is_alive:
+            break
+
+    assert bc.is_alive is False
+    await bc.stop()

@@ -130,9 +130,21 @@ class VideoBroadcaster:
         self._source: MediaStreamTrack | None = None
         self._pump_task: asyncio.Task[None] | None = None
         self._stopped = False
+        # Set to False once the source raises MediaStreamError or the
+        # pump task crashes. The publisher checks this before attaching
+        # a new viewer so dead sources reject joins instead of handing
+        # out subscriptions to a queue nothing will ever fill.
+        self._source_alive = False
         self._force_keyframe = False
         self._subscribers: list[_Subscriber] = []
         self._encoded_frames = 0
+
+    @property
+    def is_alive(self) -> bool:
+        """``False`` once the source has ended (or the pump crashed).
+        StreamPublisher uses this to refuse joins instead of attaching
+        viewers to a queue that will never get a frame."""
+        return self._source_alive
 
     # --- lifecycle --------------------------------------------------------
 
@@ -144,6 +156,7 @@ class VideoBroadcaster:
             raise RuntimeError("video broadcaster: source track is None at start")
         self._source = track
         self._stopped = False
+        self._source_alive = True
         self._pump_task = asyncio.create_task(self._pump_loop(), name="video-broadcaster-pump")
         log.info(
             "video_broadcaster.started",
@@ -245,6 +258,10 @@ class VideoBroadcaster:
             for sub in list(self._subscribers):
                 with contextlib.suppress(asyncio.QueueFull):
                     sub.queue.put_nowait(None)
+        finally:
+            # Mark dead so StreamPublisher refuses any new join requests
+            # rather than attaching them to a queue nothing will fill.
+            self._source_alive = False
 
     async def _pump(self) -> None:
         assert self._source is not None

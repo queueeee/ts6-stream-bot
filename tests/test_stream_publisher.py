@@ -84,9 +84,15 @@ def _make_pc_mock() -> MagicMock:
     pc.iceGatheringState = "complete"
 
     async def _create_offer():
+        # Yield to the event loop so other tasks get a chance to run -
+        # otherwise the in-flight join dedup looks effective in tests
+        # but only because the mocked path never actually awaits, which
+        # is unlike real aiortc where ICE gathering takes tens of ms.
+        await asyncio.sleep(0)
         return MagicMock(sdp="OFFER_SDP", type="offer")
 
     async def _set_local(description):
+        await asyncio.sleep(0)
         pc.localDescription = MagicMock(sdp="OFFER_SDP_WITH_CANDIDATES")
 
     async def _set_remote(description):
@@ -125,6 +131,7 @@ class _FakeBroadcaster:
         self.stopped = False
         self.subscribe_calls = 0
         self.tracks: list[Any] = []
+        self.is_alive = True
 
     async def start(self) -> None:
         self.started = True
@@ -309,6 +316,63 @@ async def test_two_viewers_each_get_their_own_track_subscription(wired) -> None:
     # per viewer for audio.
     assert _bc.subscribe_calls == 2
     assert publisher._relay.subscribe.call_count == 2  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_join_for_same_clid_only_creates_one_pc(wired) -> None:
+    """Live regression: the TS6 server retransmitted ``notifyjoinstreamrequest``
+    9 times in 16 ms after a single click; we used to spawn 9 peer
+    connections + 9 broadcaster subscriptions before any of them could
+    populate ``self._viewers``. The dedup set on ``self._joining`` must
+    short-circuit duplicates that arrive while the first task is still
+    running."""
+    publisher, client, _sig, _capture, _bc, pcs = wired
+    publisher._stream_id = "s1"
+
+    # Burst nine duplicates for the same clid, the way the server did.
+    for _ in range(9):
+        _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
+
+    for _ in range(40):
+        await asyncio.sleep(0.01)
+        if 42 in publisher._viewers:
+            break
+
+    # Exactly one peer connection, one broadcaster subscription, one
+    # audio relay subscription. Nothing else.
+    assert len(pcs) == 1
+    assert _bc.subscribe_calls == 1
+    assert publisher._relay.subscribe.call_count == 1  # type: ignore[attr-defined]
+    assert 42 in publisher._viewers
+
+
+@pytest.mark.asyncio
+async def test_join_refused_when_broadcaster_source_dead(wired) -> None:
+    """If the video source has ended (e.g. ffmpeg OOM-killed), there's
+    no point spinning up a peer that will never see a frame. Reject
+    cleanly with decision=0 so the TS6 client UI fails the join
+    instead of hanging on 'connecting'."""
+    publisher, client, _sig, _capture, _bc, pcs = wired
+    publisher._stream_id = "s1"
+    _bc.is_alive = False
+
+    _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
+
+    for _ in range(40):
+        await asyncio.sleep(0.01)
+        if any(c.startswith("respondjoinstreamrequest") for c in client.sent):
+            break
+
+    # No peer connection, no subscriptions, no viewer slot.
+    assert len(pcs) == 0
+    assert _bc.subscribe_calls == 0
+    assert 42 not in publisher._viewers
+    # And the server got an explicit reject so its UI flow can move on.
+    join_resp = next(
+        parse_command(c) for c in client.sent if c.startswith("respondjoinstreamrequest")
+    )
+    assert join_resp.params["clid"] == "42"
+    assert join_resp.params["decision"] == "0"
 
 
 # --- answer flow ---------------------------------------------------------

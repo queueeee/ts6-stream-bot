@@ -90,6 +90,15 @@ class StreamPublisher:
         self._stream_started_event = asyncio.Event()
 
         self._viewers: dict[int, _Viewer] = {}
+        # Clids whose ``_handle_viewer_join`` is currently mid-flight.
+        # Prevents the duplicate-notify cascade we hit on the live TS6
+        # server: a single click produced 9 ``notifyjoinstreamrequest``
+        # commands within 16 ms (server retransmission quirk), each of
+        # which spawned a fresh peer connection + broadcaster
+        # subscription before the first one could populate
+        # ``self._viewers``. Nine concurrent ICE gatherings + 9 encoder
+        # subscriptions blew RSS to 1.3 GB and OOM-killed the capture.
+        self._joining: set[int] = set()
         self._lock = asyncio.Lock()
         # Track in-flight tasks so the GC doesn't clean them up mid-flight.
         self._tasks: set[asyncio.Task[None]] = set()
@@ -273,11 +282,50 @@ class StreamPublisher:
 
     async def _handle_viewer_join(self, viewer_clid: int, stream_id: str) -> None:
         async with self._lock:
+            # Drop a duplicate notify (TS6 retransmits the same
+            # ``notifyjoinstreamrequest`` until ACKed and our live deploy
+            # saw 9 copies inside 16 ms). The ``_joining`` membership is
+            # set BEFORE we do any expensive work so the second-through-
+            # ninth tasks bail out without spinning up a fresh PC.
+            if viewer_clid in self._joining:
+                log.info("stream_publisher.duplicate_join_dropped", clid=viewer_clid)
+                return
+            self._joining.add(viewer_clid)
             # Same viewer joining twice (e.g. reconnect): drop the old PC first.
             existing = self._viewers.pop(viewer_clid, None)
+
+        try:
+            await self._do_viewer_join(viewer_clid, stream_id, existing)
+        finally:
+            async with self._lock:
+                self._joining.discard(viewer_clid)
+
+    async def _do_viewer_join(
+        self,
+        viewer_clid: int,
+        stream_id: str,
+        existing: _Viewer | None,
+    ) -> None:
         if existing is not None:
             with contextlib.suppress(Exception):
                 await existing.pc.close()
+
+        # If the broadcaster's source has died (e.g. ffmpeg / x11grab
+        # OOM-killed) there's no point spinning up a peer that will
+        # never see a frame. Reject the join cleanly so the TS6 UI
+        # surfaces the failure instead of hanging on "connecting".
+        if not self._video_broadcaster.is_alive:
+            log.warning(
+                "stream_publisher.refusing_join_broadcaster_dead",
+                clid=viewer_clid,
+            )
+            with contextlib.suppress(Exception):
+                self._signaling.send_join_response(
+                    viewer_clid=viewer_clid,
+                    stream_id=stream_id,
+                    accept=False,
+                )
+            return
 
         # STUN exposes the bot's public-NAT'd address as a server-reflexive
         # candidate. TURN relays media when direct NAT punching fails -
