@@ -46,8 +46,15 @@ class BrowserManager:
             args=[
                 "--no-sandbox",                       # required in container
                 "--disable-dev-shm-usage",
-                "--disable-gpu",                      # CPU rendering -> X11 framebuffer
+                # Hardware acceleration is fully disabled - x11grab can only
+                # capture what lands in the X11 framebuffer, which means we
+                # need every render path (GL, raster, video decode) to stay
+                # in software.
+                "--disable-gpu",
                 "--disable-software-rasterizer",
+                "--disable-accelerated-2d-canvas",
+                "--disable-accelerated-video-decode",
+                "--disable-gpu-compositing",
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--autoplay-policy=no-user-gesture-required",
