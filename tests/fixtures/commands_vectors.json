@@ -1,0 +1,168 @@
+{
+  "escape": [
+    {
+      "input": "",
+      "output": ""
+    },
+    {
+      "input": "plain",
+      "output": "plain"
+    },
+    {
+      "input": "with space",
+      "output": "with\\sspace"
+    },
+    {
+      "input": "a/b\\c",
+      "output": "a\\/b\\\\c"
+    },
+    {
+      "input": "pipe|separator",
+      "output": "pipe\\pseparator"
+    },
+    {
+      "input": "tab\there",
+      "output": "tab\\there"
+    },
+    {
+      "input": "all\f\n\r\t\u000b",
+      "output": "all\\f\\n\\r\\t\\v"
+    },
+    {
+      "input": "unicode äöü",
+      "output": "unicode\\säöü"
+    }
+  ],
+  "unescape": [
+    {
+      "input": "\\\\",
+      "output": "\\"
+    },
+    {
+      "input": "with\\sspace",
+      "output": "with space"
+    },
+    {
+      "input": "pipe\\pseparator",
+      "output": "pipe|separator"
+    },
+    {
+      "input": "all\\f\\n\\r\\t\\v",
+      "output": "all\f\n\r\t\u000b"
+    },
+    {
+      "input": "a\\/b",
+      "output": "a/b"
+    }
+  ],
+  "build": [
+    {
+      "name": "clientupdate",
+      "params": {
+        "client_nickname": "My Bot"
+      },
+      "output": "clientupdate client_nickname=My\\sBot"
+    },
+    {
+      "name": "sendtextmessage",
+      "params": {
+        "targetmode": 1,
+        "target": 5,
+        "msg": "hello world"
+      },
+      "output": "sendtextmessage targetmode=1 target=5 msg=hello\\sworld"
+    },
+    {
+      "name": "flag",
+      "params": {
+        "audio": true,
+        "video": false
+      },
+      "output": "flag audio=1 video=0"
+    },
+    {
+      "name": "with_undefined",
+      "params": {
+        "keep": "me",
+        "also_keep": "0"
+      },
+      "output": "with_undefined keep=me also_keep=0"
+    }
+  ],
+  "parse_simple": [
+    {
+      "raw": "init mac=hello",
+      "name": "init",
+      "params": {
+        "mac": "hello"
+      }
+    },
+    {
+      "raw": "noflags",
+      "name": "noflags",
+      "params": {}
+    },
+    {
+      "raw": "cmd flag novalue=",
+      "name": "cmd",
+      "params": {
+        "flag": "",
+        "novalue": ""
+      }
+    },
+    {
+      "raw": "sendtextmessage targetmode=1 target=5 msg=hello\\sworld",
+      "name": "sendtextmessage",
+      "params": {
+        "targetmode": "1",
+        "target": "5",
+        "msg": "hello world"
+      }
+    }
+  ],
+  "parse_grouped": [
+    {
+      "raw": "channellist cid=1 name=Default|cid=2 name=Other",
+      "expected_groups": [
+        {
+          "cid": "1",
+          "name": "Default"
+        },
+        {
+          "cid": "2",
+          "name": "Other"
+        }
+      ]
+    },
+    {
+      "raw": "clientlist clid=1 client_nickname=Alice|clid=2 client_nickname=Bob\\sthe\\sBuilder",
+      "expected_groups": [
+        {
+          "clid": "1",
+          "client_nickname": "Alice"
+        },
+        {
+          "clid": "2",
+          "client_nickname": "Bob the Builder"
+        }
+      ]
+    }
+  ],
+  "round_trips": [
+    {
+      "input": "Don't say \"hello world\" / I /| won't",
+      "escaped": "Don't\\ssay\\s\"hello\\sworld\"\\s\\/\\sI\\s\\/\\p\\swon't",
+      "restored": "Don't say \"hello world\" / I /| won't"
+    },
+    {
+      "input": "unicode 🎵 streaming",
+      "escaped": "unicode\\s🎵\\sstreaming",
+      "restored": "unicode 🎵 streaming"
+    },
+    {
+      "input": "tabs\tand\nnewlines",
+      "escaped": "tabs\\tand\\nnewlines",
+      "restored": "tabs\tand\nnewlines"
+    }
+  ]
+}
