@@ -114,11 +114,37 @@ def _emit(client: _FakeClient, raw: str) -> None:
 # --- fixture: publisher with mocked aiortc / capture --------------------
 
 
+class _FakeBroadcaster:
+    """Stand-in for VideoBroadcaster so the publisher tests don't need
+    a real libvpx context. ``subscribe()`` returns a fresh sentinel
+    object per call so each viewer's ``addTrack`` argument is unique
+    and the multi-viewer regression test can count subscriptions."""
+
+    def __init__(self) -> None:
+        self.started = False
+        self.stopped = False
+        self.subscribe_calls = 0
+        self.tracks: list[Any] = []
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    def subscribe(self) -> Any:
+        self.subscribe_calls += 1
+        track = MagicMock(name=f"broadcast-track-{self.subscribe_calls}")
+        self.tracks.append(track)
+        return track
+
+
 @pytest.fixture
 def wired(monkeypatch):
     client = _FakeClient.make()
     sig = StreamSignaling(client)  # type: ignore[arg-type]
     capture = _FakeCapture()
+    broadcaster = _FakeBroadcaster()
 
     pc_mocks: list[MagicMock] = []
 
@@ -131,13 +157,18 @@ def wired(monkeypatch):
     # publisher's `RTCPeerConnection()` calls return the mock.
     monkeypatch.setattr("ts6_stream_bot.pipeline.stream_publisher.RTCPeerConnection", _factory)
 
-    publisher = StreamPublisher(client=client, signaling=sig, capture=capture)  # type: ignore[arg-type]
+    publisher = StreamPublisher(  # type: ignore[arg-type]
+        client=client,
+        signaling=sig,
+        capture=capture,
+        video_broadcaster=broadcaster,
+    )
     # Stub the MediaRelay so .subscribe() returns the source track verbatim.
-    # That way the existing assertions on pc.addTrack(<source>) still work
-    # while we still get to verify subscribe() was actually called.
+    # Audio still flows through the relay; video bypasses it via the
+    # broadcaster fake above.
     publisher._relay = MagicMock()
     publisher._relay.subscribe = MagicMock(side_effect=lambda track: track)
-    return publisher, client, sig, capture, pc_mocks
+    return publisher, client, sig, capture, broadcaster, pc_mocks
 
 
 # --- start ---------------------------------------------------------------
@@ -145,7 +176,7 @@ def wired(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_start_sends_setupstream_and_waits_for_started_notification(wired) -> None:
-    publisher, client, sig, capture, _ = wired
+    publisher, client, sig, capture, _bc, _ = wired
 
     async def _trigger_started() -> None:
         await asyncio.sleep(0.01)
@@ -179,7 +210,7 @@ async def test_start_ignores_started_for_other_clid(wired) -> None:
     """If the server emits notifystreamstarted for someone else's stream
     (shouldn't happen in practice, but be defensive), our start() must
     not latch onto it."""
-    publisher, _client, sig, _capture, _ = wired
+    publisher, _client, sig, _capture, _bc, _ = wired
 
     async def _trigger_other_then_ours() -> None:
         await asyncio.sleep(0.01)
@@ -221,7 +252,7 @@ async def test_start_ignores_started_for_other_clid(wired) -> None:
 
 @pytest.mark.asyncio
 async def test_join_request_creates_pc_and_sends_offer(wired) -> None:
-    publisher, client, _sig, capture, pcs = wired
+    publisher, client, _sig, capture, _bc, pcs = wired
 
     # Skip start(); set the stream id directly.
     publisher._stream_id = "s1"
@@ -236,11 +267,14 @@ async def test_join_request_creates_pc_and_sends_offer(wired) -> None:
 
     assert len(pcs) == 1
     pc = pcs[0]
-    pc.addTrack.assert_any_call(capture.video_track)
+    # Video now comes from the broadcaster (one libvpx instance for the
+    # whole stream); audio still flows through the per-PC MediaRelay
+    # subscription so each viewer's Opus encoder reads its own queue
+    # rather than racing on the parec subprocess.
+    assert _bc.subscribe_calls == 1
+    pc.addTrack.assert_any_call(_bc.tracks[0])
     pc.addTrack.assert_any_call(capture.audio_track)
-    # Each of the two tracks must go through the relay so multiple PCs don't
-    # race on the underlying parec / x11grab subprocess.
-    assert publisher._relay.subscribe.call_count == 2  # type: ignore[attr-defined]
+    assert publisher._relay.subscribe.call_count == 1  # type: ignore[attr-defined]
 
     join_resp = next(
         parse_command(c) for c in client.sent if c.startswith("respondjoinstreamrequest")
@@ -252,13 +286,15 @@ async def test_join_request_creates_pc_and_sends_offer(wired) -> None:
 
 
 @pytest.mark.asyncio
-async def test_two_viewers_each_get_their_own_relay_subscription(wired) -> None:
+async def test_two_viewers_each_get_their_own_track_subscription(wired) -> None:
     """Multi-viewer regression: a second join must NOT reuse the first
-    viewer's track - both go through MediaRelay.subscribe so each PC has
-    its own consumer queue. This is what was crashing the live deploy
-    with 'readexactly() called while another coroutine is already
-    waiting for incoming data'."""
-    publisher, client, _sig, _capture, pcs = wired
+    viewer's track. Video gets one broadcaster.subscribe() per viewer
+    (each viewer reads its own per-subscriber queue of av.Packets);
+    audio stays with MediaRelay.subscribe() so each Opus encoder reads
+    its own queue rather than racing on the shared parec recv().
+    This is what was crashing the live deploy with 'readexactly()
+    called while another coroutine is already waiting for incoming data'."""
+    publisher, client, _sig, _capture, _bc, pcs = wired
     publisher._stream_id = "s1"
 
     _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
@@ -269,8 +305,10 @@ async def test_two_viewers_each_get_their_own_relay_subscription(wired) -> None:
             break
 
     assert len(pcs) == 2, f"expected 2 PCs, got {len(pcs)}"
-    # 2 viewers * 2 tracks each = 4 subscribe calls
-    assert publisher._relay.subscribe.call_count == 4  # type: ignore[attr-defined]
+    # One broadcaster subscription per viewer, plus one relay subscription
+    # per viewer for audio.
+    assert _bc.subscribe_calls == 2
+    assert publisher._relay.subscribe.call_count == 2  # type: ignore[attr-defined]
 
 
 # --- answer flow ---------------------------------------------------------
@@ -278,7 +316,7 @@ async def test_two_viewers_each_get_their_own_relay_subscription(wired) -> None:
 
 @pytest.mark.asyncio
 async def test_answer_calls_set_remote_description(wired) -> None:
-    publisher, client, sig, _capture, pcs = wired
+    publisher, client, sig, _capture, _bc, pcs = wired
     publisher._stream_id = "s1"
 
     _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
@@ -307,7 +345,7 @@ async def test_answer_calls_set_remote_description(wired) -> None:
 
 @pytest.mark.asyncio
 async def test_ice_candidate_is_forwarded_to_pc(wired, monkeypatch) -> None:
-    publisher, client, sig, _capture, pcs = wired
+    publisher, client, sig, _capture, _bc, pcs = wired
     publisher._stream_id = "s1"
 
     # Patch candidate_from_sdp so we don't have to construct a real
@@ -361,7 +399,7 @@ async def test_ice_candidate_arriving_before_answer_is_buffered(wired, monkeypat
     """Regression for the live deploy where every ICE candidate arrived
     before the answer task finished and aiortc dropped the call. Now
     candidates wait for the answer via the per-viewer remote_set event."""
-    publisher, client, sig, _capture, pcs = wired
+    publisher, client, sig, _capture, _bc, pcs = wired
     publisher._stream_id = "s1"
     fake_candidate = MagicMock()
     monkeypatch.setattr(
@@ -408,7 +446,7 @@ async def test_ice_candidate_arriving_before_answer_is_buffered(wired, monkeypat
 
 @pytest.mark.asyncio
 async def test_client_left_closes_pc_and_drops_viewer(wired) -> None:
-    publisher, client, _sig, _capture, pcs = wired
+    publisher, client, _sig, _capture, _bc, pcs = wired
     publisher._stream_id = "s1"
 
     _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
@@ -429,7 +467,7 @@ async def test_client_left_closes_pc_and_drops_viewer(wired) -> None:
 
 @pytest.mark.asyncio
 async def test_stop_kicks_all_viewers_and_sends_stopstream(wired) -> None:
-    publisher, client, _sig, capture, pcs = wired
+    publisher, client, _sig, capture, _bc, pcs = wired
     publisher._stream_id = "s1"
 
     _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
@@ -453,7 +491,7 @@ async def test_stop_kicks_all_viewers_and_sends_stopstream(wired) -> None:
 
 @pytest.mark.asyncio
 async def test_stop_without_start_only_stops_capture(wired) -> None:
-    publisher, _client, _sig, capture, _ = wired
+    publisher, _client, _sig, capture, _bc, _ = wired
     await publisher.stop()
     assert capture.stopped is True
     assert publisher._stream_id is None
@@ -464,7 +502,7 @@ async def test_stop_without_start_only_stops_capture(wired) -> None:
 
 @pytest.mark.asyncio
 async def test_status_reflects_state(wired) -> None:
-    publisher, _, _, _, _pcs = wired
+    publisher, _, _, _, _bc, _pcs = wired
     s = publisher.status()
     assert s.streaming is False
     assert s.viewer_count == 0

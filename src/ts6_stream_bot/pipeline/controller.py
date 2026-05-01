@@ -40,6 +40,10 @@ from ts6_stream_bot.config import settings
 from ts6_stream_bot.pipeline.browser import BrowserManager
 from ts6_stream_bot.pipeline.stream_publisher import StreamPublisher
 from ts6_stream_bot.pipeline.stream_signaling import StreamSignaling
+from ts6_stream_bot.pipeline.video_broadcaster import (
+    VideoBroadcaster,
+    VideoBroadcasterConfig,
+)
 from ts6_stream_bot.pipeline.video_capture import VideoCapture, VideoCaptureConfig
 from ts6_stream_bot.sources import StreamSource, resolve_source
 from ts6_stream_bot.ts3lib.client import Ts3Client, Ts3ClientOptions
@@ -254,7 +258,25 @@ class StreamController:
             pulse_source=f"{settings.PULSE_SINK}.monitor",
         )
         capture = VideoCapture(capture_config)
-        publisher = StreamPublisher(client=self._ts3_client, signaling=signaling, capture=capture)
+        # Single libvpx instance shared across viewers. STREAM_BITRATE is
+        # in kbps (mirrors the TS6 setupstream parameter); the codec
+        # context wants bps. The factory closure defers reading
+        # capture.video_track until publisher.start() has booted capture.
+        broadcaster = VideoBroadcaster(
+            source_track_factory=lambda: capture.video_track,
+            config=VideoBroadcasterConfig(
+                bitrate=settings.STREAM_BITRATE * 1000,
+                width=settings.SCREEN_WIDTH,
+                height=settings.SCREEN_HEIGHT,
+                framerate=settings.SCREEN_FPS,
+            ),
+        )
+        publisher = StreamPublisher(
+            client=self._ts3_client,
+            signaling=signaling,
+            capture=capture,
+            video_broadcaster=broadcaster,
+        )
 
         log.info(
             "controller.stream_setup",
