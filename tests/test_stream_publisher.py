@@ -132,6 +132,11 @@ def wired(monkeypatch):
     monkeypatch.setattr("ts6_stream_bot.pipeline.stream_publisher.RTCPeerConnection", _factory)
 
     publisher = StreamPublisher(client=client, signaling=sig, capture=capture)  # type: ignore[arg-type]
+    # Stub the MediaRelay so .subscribe() returns the source track verbatim.
+    # That way the existing assertions on pc.addTrack(<source>) still work
+    # while we still get to verify subscribe() was actually called.
+    publisher._relay = MagicMock()
+    publisher._relay.subscribe = MagicMock(side_effect=lambda track: track)
     return publisher, client, sig, capture, pc_mocks
 
 
@@ -233,6 +238,9 @@ async def test_join_request_creates_pc_and_sends_offer(wired) -> None:
     pc = pcs[0]
     pc.addTrack.assert_any_call(capture.video_track)
     pc.addTrack.assert_any_call(capture.audio_track)
+    # Each of the two tracks must go through the relay so multiple PCs don't
+    # race on the underlying parec / x11grab subprocess.
+    assert publisher._relay.subscribe.call_count == 2  # type: ignore[attr-defined]
 
     join_resp = next(
         parse_command(c) for c in client.sent if c.startswith("respondjoinstreamrequest")
@@ -241,6 +249,28 @@ async def test_join_request_creates_pc_and_sends_offer(wired) -> None:
     assert join_resp.params["decision"] == "1"
     assert join_resp.params["offer"] == "OFFER_SDP_WITH_CANDIDATES"
     assert 42 in publisher._viewers
+
+
+@pytest.mark.asyncio
+async def test_two_viewers_each_get_their_own_relay_subscription(wired) -> None:
+    """Multi-viewer regression: a second join must NOT reuse the first
+    viewer's track - both go through MediaRelay.subscribe so each PC has
+    its own consumer queue. This is what was crashing the live deploy
+    with 'readexactly() called while another coroutine is already
+    waiting for incoming data'."""
+    publisher, client, _sig, _capture, pcs = wired
+    publisher._stream_id = "s1"
+
+    _emit(client, "notifyjoinstreamrequest id=s1 clid=42")
+    _emit(client, "notifyjoinstreamrequest id=s1 clid=43")
+    for _ in range(40):
+        await asyncio.sleep(0.01)
+        if len(pcs) >= 2 and len(publisher._viewers) >= 2:
+            break
+
+    assert len(pcs) == 2, f"expected 2 PCs, got {len(pcs)}"
+    # 2 viewers * 2 tracks each = 4 subscribe calls
+    assert publisher._relay.subscribe.call_count == 4  # type: ignore[attr-defined]
 
 
 # --- answer flow ---------------------------------------------------------

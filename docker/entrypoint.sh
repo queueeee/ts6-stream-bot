@@ -9,21 +9,32 @@ DISPLAY_NUM="${DISPLAY#:}"
 XVFB_LOCK="/tmp/.X${DISPLAY_NUM}-lock"
 XVFB_SOCKET="/tmp/.X11-unix/X${DISPLAY_NUM}"
 
+# PulseAudio runtime + lock locations. With Docker `restart: unless-stopped`
+# the container's filesystem (incl. /run and /root) persists across PID-1
+# restarts, so a previous PulseAudio's pid file blocks the new one with
+# "Daemon already running. pa_pid_file_create() failed."
+PULSE_PIDS=(
+  "/run/pulse/pid"
+  "/var/run/pulse/pid"
+  "/root/.config/pulse/pid"
+  "/tmp/pulse/pid"
+)
+
 cleanup() {
   log "shutting down ..."
   [[ -n "${XVFB_PID:-}" ]] && kill "$XVFB_PID" 2>/dev/null || true
   [[ -n "${PULSE_PID:-}" ]] && kill "$PULSE_PID" 2>/dev/null || true
-  # Belt-and-suspenders: if Docker restart-policy is reusing this container
-  # (it does for restart: unless-stopped), /tmp persists between PID 1
-  # restarts. Wipe Xvfb's leftovers so the next start doesn't trip on
-  # "Server is already active for display N".
+  # Belt-and-suspenders: wipe leftovers so the next start doesn't trip on
+  # "Server is already active for display N" / "Daemon already running".
   rm -f "$XVFB_LOCK" "$XVFB_SOCKET" 2>/dev/null || true
+  rm -f "${PULSE_PIDS[@]}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 # Same hygiene up-front, in case the previous run died without our trap firing
 # (e.g. SIGKILL from a crash).
 rm -f "$XVFB_LOCK" "$XVFB_SOCKET" 2>/dev/null || true
+rm -f "${PULSE_PIDS[@]}" 2>/dev/null || true
 
 # --- Xvfb ------------------------------------------------------------------
 log "starting Xvfb on $DISPLAY (${SCREEN_WIDTH:-1920}x${SCREEN_HEIGHT:-1080}x24)"
