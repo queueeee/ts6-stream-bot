@@ -808,6 +808,13 @@ class Ts3Client:
             "client_default_token": "",
             "hwid": "",
         }
+        log.info(
+            "ts3.sending_clientinit",
+            nickname=self._opts.nickname,
+            default_channel=self._opts.default_channel or "(server default)",
+            server_password_set=bool(self._opts.server_password),
+            channel_password_set=bool(self._opts.channel_password),
+        )
         self.send_command(build_command("clientinit", params))
 
     def _handle_initserver(self, params: dict[str, str]) -> None:

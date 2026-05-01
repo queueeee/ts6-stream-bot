@@ -211,7 +211,15 @@ class StreamController:
     # --- internals ---------------------------------------------------------
 
     async def _connect_ts6(self) -> None:
-        log.info("controller.ts6_connecting", host=settings.TS6_HOST, port=settings.TS6_PORT)
+        log.info(
+            "controller.ts6_connecting",
+            host=settings.TS6_HOST,
+            port=settings.TS6_PORT,
+            nickname=settings.TS6_NICKNAME,
+            default_channel=settings.TS6_DEFAULT_CHANNEL or "(server default)",
+            server_password_set=bool(settings.TS6_SERVER_PASSWORD),
+            channel_password_set=bool(settings.TS6_CHANNEL_PASSWORD),
+        )
         identity = await generate_identity_async(security_level=8)
         log.info("controller.ts6_identity_ready", uid=identity.uid)
 
