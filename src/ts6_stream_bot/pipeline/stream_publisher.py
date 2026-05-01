@@ -334,6 +334,19 @@ class StreamPublisher:
 
         offer_sdp = pc.localDescription.sdp
 
+        # Surface the local ICE candidate set so we can tell at a glance
+        # whether STUN/TURN actually contributed anything. The trace we
+        # need to debug "ICE failed" almost always boils down to "the bot
+        # only has its docker-bridge host candidate, no srflx, no relay".
+        local_candidates = _parse_local_candidates(offer_sdp)
+        log.info(
+            "stream_publisher.local_ice_candidates",
+            clid=viewer_clid,
+            count=len(local_candidates),
+            kinds=sorted({c["typ"] for c in local_candidates}),
+            candidates=local_candidates,
+        )
+
         async with self._lock:
             self._viewers[viewer_clid] = _Viewer(
                 clid=viewer_clid, pc=pc, joined_at=asyncio.get_event_loop().time()
@@ -454,6 +467,28 @@ class StreamPublisher:
                 )
                 return
             await asyncio.sleep(poll)
+
+
+def _parse_local_candidates(sdp: str) -> list[dict[str, str]]:
+    """Pull the c=...candidate lines out of an SDP into a structured form
+    so the diagnostic log shows "what did STUN actually give us"."""
+    out: list[dict[str, str]] = []
+    for line in sdp.splitlines():
+        if not line.startswith("a=candidate:"):
+            continue
+        parts = line[len("a=candidate:") :].split()
+        # Format: <foundation> <component> <protocol> <priority> <ip> <port>
+        # typ <type> [raddr <ip> rport <port>] [tcptype ...] ...
+        if len(parts) < 7:
+            continue
+        entry: dict[str, str] = {
+            "protocol": parts[2].lower(),
+            "ip": parts[4],
+            "port": parts[5],
+            "typ": parts[7] if len(parts) > 7 and parts[6] == "typ" else "?",
+        }
+        out.append(entry)
+    return out
 
 
 __all__ = [
