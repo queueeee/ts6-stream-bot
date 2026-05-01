@@ -34,15 +34,19 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # --- Display / capture -------------------------------------------------
-    # 720p30 keeps the per-viewer VP8 encode out of OOM territory on
-    # small hosts. aiortc + PyAV at 1080p30 with even one peer can run a
-    # 4 GB host out of memory (live deploy hit SIGKILL after ~6 s of
-    # streaming). Bump SCREEN_WIDTH/SCREEN_HEIGHT in .env if your host
-    # has the budget; you'll also want to bump STREAM_BITRATE.
+    # Defaults are tuned for a 4 GB host running both the bot and the TS6
+    # server side by side. Each viewer adds its own VP8 encoder (PyAV +
+    # libvpx through aiortc); live measurement at 720p30 / 4608 kbps had
+    # one viewer push the bot's RSS past 750 MB and still climbing - on
+    # a 4 GB box, two viewers + the TS6 server is enough to OOM the
+    # whole stack and crash the server with it. 480p24 / 2500 kbps cuts
+    # the encoder's reference-frame pool roughly in half. Bump every
+    # value if your host has the budget; you'll usually want to scale
+    # SCREEN_WIDTH/HEIGHT and STREAM_BITRATE together.
     DISPLAY: str = ":99"
-    SCREEN_WIDTH: int = 1280
-    SCREEN_HEIGHT: int = 720
-    SCREEN_FPS: int = 30
+    SCREEN_WIDTH: int = 854
+    SCREEN_HEIGHT: int = 480
+    SCREEN_FPS: int = 24
 
     # --- Audio -------------------------------------------------------------
     PULSE_SINK: str = "bot_sink"
@@ -91,7 +95,15 @@ class Settings(BaseSettings):
     # --- Stream parameters -------------------------------------------------
     # These shape the `setupstream` request the bot sends on connect.
     # Defaults match what the TS6 client UI uses for a normal screen-share.
-    STREAM_BITRATE: int = Field(default=4608, description="Stream bitrate hint (kbps).")
+    STREAM_BITRATE: int = Field(
+        default=2500,
+        description=(
+            "Stream bitrate hint (kbps). 2500 pairs well with the 480p24 "
+            "default and keeps libvpx's encoder buffer modest. Bump to "
+            "~4608 for 720p, ~6000+ for 1080p (you'll also need to lift "
+            "SCREEN_WIDTH/HEIGHT)."
+        ),
+    )
     STREAM_ACCESSIBILITY: int = Field(
         default=0,
         description=(
@@ -108,12 +120,14 @@ class Settings(BaseSettings):
         ),
     )
     STREAM_VIEWER_LIMIT: int = Field(
-        default=4,
+        default=2,
         description=(
             "Max concurrent viewers. Each viewer spins up its own VP8 encoder "
-            "(~280 MB RSS at 720p30); without a cap the bot can OOM the host "
-            "before the operator notices. -1 = unlimited (TS3 convention) - "
-            "only set this if you've measured memory under load."
+            "(roughly 250 MB RSS at 480p24, more at higher resolutions); "
+            "without a cap the bot can OOM the host before the operator "
+            "notices, and on hosts where the TS6 server lives next to the "
+            "bot that takes the server out too. -1 = unlimited (TS3 "
+            "convention) - only set this if you've measured memory under load."
         ),
     )
 
@@ -135,6 +149,24 @@ class Settings(BaseSettings):
     )
     TURN_USERNAME: str = Field(default="", description="TURN auth username.")
     TURN_PASSWORD: str = Field(default="", description="TURN auth password.")
+
+    # When the bot runs in `network_mode: host`, aiortc gathers a host
+    # candidate for *every* interface in the host namespace - that
+    # includes Docker's bridge gateways (172.16.0.0/12) which no
+    # external viewer can route to. Each useless candidate also
+    # spawns a srflx pair, blowing the offer SDP up to ~5 KB / 11
+    # UDP fragments. Some TS6 server builds cope poorly with that
+    # volume and drop or crash. Filtering them out before send_join_response
+    # keeps the SDP small and the server stable.
+    ICE_DROP_NETWORKS: list[str] = Field(
+        default=["172.16.0.0/12"],
+        description=(
+            "CIDR blocks whose host / srflx ICE candidates are stripped "
+            "from the offer SDP before we hand it to the TS6 server. "
+            "Default targets Docker's bridge gateway range. Set to an "
+            "empty list to disable."
+        ),
+    )
 
     @field_validator("BOT_API_KEY")
     @classmethod
