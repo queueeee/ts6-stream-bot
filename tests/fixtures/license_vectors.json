@@ -1,0 +1,35 @@
+{
+  "license_root_key": "cd0de2aed46345509a7e3cfd8f68b3dc7555b29dccec73cd18750f993812408a",
+  "parse_and_derive": {
+    "license_blob": "0100badc3fb1f1eb1345ac9f994de3039a7417a52a8d6e8e2d838339be4bdc831f3c0050414444494e4730504658306973737565720000fbab84d0a8c1b6f925618e99e258c137be5b27daf6ca7547ce40d42de4a952530250414444494e47315046583031686f73746e616d652e6578616d706c6500006adcb54915fa854a950c0c505ff0e02dce9681b159202b25735caa663689abe1204550485041443038",
+    "blocks": [
+      {
+        "key": "badc3fb1f1eb1345ac9f994de3039a7417a52a8d6e8e2d838339be4bdc831f3c",
+        "hash": "63a71d2f3190609bb57408528e8e42ef0f91bc76f42ca99e3089ee1cda394fda",
+        "type": 0
+      },
+      {
+        "key": "fbab84d0a8c1b6f925618e99e258c137be5b27daf6ca7547ce40d42de4a95253",
+        "hash": "99214d6d814da514428d6792bdefa86b83fd2b4b1b8585f39a3db37dba1fd806",
+        "type": 2
+      },
+      {
+        "key": "6adcb54915fa854a950c0c505ff0e02dce9681b159202b25735caa663689abe1",
+        "hash": "d571096d9f2b378b876c40336151266b11fce63b24143ba0dcb2a8522c070fc6",
+        "type": 32
+      }
+    ],
+    "derived_key": "cd3ec1fc45fa37f4f1d86bbc7a48fb5665b805f8f0065be1127440fff78759e9"
+  },
+  "shared_secret2": {
+    "server_derived_key": "f962c9a696f82c60bbdb82e2fbe8ba794c60cefe76a9189b7eefbb656f9ef187",
+    "temp_private_key": "c4c58f75d6e837b814ff5f6b6859621c20cf8803b653cf838366fc3bf31850e6",
+    "shared_secret": "ce706895a432625fcd85f32d70fa38ca65a0df7f95aaf4b00556db60b75a378e172f3b9df4aac9fc01563d543cd344bb7726acae2bad0f64d1c8fad4f4534f04"
+  },
+  "derive_block_key": {
+    "block_key": "9a92ea2ec27154a1f308a24180b6dcc4837da9279ca6f1e746d1320cbd2192c0",
+    "block_hash": "5eb290dce11034a0cd1183160a1a1b83e76717f0fd5ffa0b475c03b4494427a3",
+    "parent_key": "cd0de2aed46345509a7e3cfd8f68b3dc7555b29dccec73cd18750f993812408a",
+    "result": "7c562fd23a004797120927e7fc9fd80499ae5ab0f11de55a4c6301a7970e90d2"
+  }
+}

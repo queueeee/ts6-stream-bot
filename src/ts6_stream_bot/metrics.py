@@ -44,6 +44,7 @@ try:
         return generate_latest(_registry), CONTENT_TYPE_LATEST
 
 except ImportError:  # pragma: no cover - optional dep
+
     class _NoopCounter:
         def inc(self, amount: float = 1.0) -> None:
             return None

@@ -11,15 +11,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # System dependencies:
 # - xvfb: virtual X display
-# - pulseaudio: virtual audio sink + monitor source
-# - ffmpeg: capture pipeline (x11grab + pulse -> hls)
-# - chromium + deps: rendering engine for Playwright
+# - pulseaudio + utils: virtual audio sink + monitor source + parec
+# - ffmpeg: x11grab + pulse capture, fed through PyAV/aiortc
+# - libsodium / libssl: needed by PyNaCl + cryptography (most wheels bundle
+#   their own, but having the system libs avoids surprise wheel mismatches)
+# - chromium runtime libs: rendering engine for Playwright
 # - dbus, fonts, etc: chromium runtime needs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     pulseaudio \
     pulseaudio-utils \
     ffmpeg \
+    libsodium23 \
+    libssl3 \
     dbus-x11 \
     procps \
     curl \
@@ -44,7 +48,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python deps first for layer caching
+# Install Python deps first for layer caching. Mirrors pyproject.toml but
+# avoids pulling the whole dev toolchain into the runtime image.
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir \
     fastapi \
@@ -56,21 +61,24 @@ RUN pip install --no-cache-dir \
     yt-dlp \
     httpx \
     anyio \
-    prometheus-client
+    prometheus-client \
+    cryptography \
+    pynacl \
+    av \
+    numpy \
+    aiortc
 
 # Playwright browser binaries (chromium only)
 RUN playwright install chromium && \
     playwright install-deps chromium 2>/dev/null || true
 
-# App source
+# App source + frontend
 COPY src/ ./src/
+COPY frontend/ ./frontend/
 COPY docker/ ./docker/
 
 # Make entrypoint executable
 RUN chmod +x /app/docker/entrypoint.sh
-
-# Output dir for HLS segments (mounted as volume in compose)
-RUN mkdir -p /var/hls && chmod 777 /var/hls
 
 # Pulse runtime dir
 RUN mkdir -p /tmp/pulse && chmod 777 /tmp/pulse

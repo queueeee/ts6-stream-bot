@@ -1,0 +1,154 @@
+{
+  "init_constants": {
+    "MAC_LEN": 8,
+    "INIT_MAC": "545333494e495431",
+    "DUMMY_KEY": "633a5c77696e646f77735c7379737465",
+    "DUMMY_NONCE": "6d5c6669726577616c6c33322e63706c",
+    "INIT_VERSION": 1566914096
+  },
+  "hash_password": [
+    {
+      "input": "",
+      "output": ""
+    },
+    {
+      "input": "hunter2",
+      "output": "87u9ZqY9S/F0eUBXjsPQEDUw4h0="
+    },
+    {
+      "input": "mörk åe ünicöde",
+      "output": "hGIVJmlkh0NPh1fyBaDAing/9To="
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "output": "AJi6gktcFkJ716ESKlpEKiXsZE0="
+    }
+  ],
+  "sha": [
+    {
+      "input": "",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sha512": "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+    },
+    {
+      "input": "abc",
+      "sha1": "a9993e364706816aba3e25717850c26c9cd0d89d",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "sha512": "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+    }
+  ],
+  "cmac": [
+    {
+      "key": "2b7e151628aed2a6abf7158809cf4f3c",
+      "data": "",
+      "mac": "bb1d6929e95937287fa37d129b756746"
+    },
+    {
+      "key": "2b7e151628aed2a6abf7158809cf4f3c",
+      "data": "6bc1bee22e409f96e93d7e117393172a",
+      "mac": "070a16b46b4d4144f79bdd9dd04a287c"
+    },
+    {
+      "key": "2b7e151628aed2a6abf7158809cf4f3c",
+      "data": "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411",
+      "mac": "dfa66747de9ae63030ca32611497c827"
+    },
+    {
+      "key": "2b7e151628aed2a6abf7158809cf4f3c",
+      "data": "6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710",
+      "mac": "51f0bebf7e3b9d92fc49741779363cfe"
+    }
+  ],
+  "xor_buffers": [
+    {
+      "a": "00ff00ff",
+      "b": "ff00ff00",
+      "out": "ffffffff"
+    },
+    {
+      "a": "aabb",
+      "b": "ccddeeff",
+      "out": "6666"
+    }
+  ],
+  "derive_key_nonce": [
+    {
+      "from_server": false,
+      "packet_id": 5,
+      "generation_id": 0,
+      "packet_type": 2,
+      "iv_struct": "00112233445566778899aabbccddeeff00112233",
+      "key": "566990b8d57e07a8efdf335d73e62631",
+      "nonce": "405666919dafd50db9ce9b9f9c56b58a"
+    },
+    {
+      "from_server": true,
+      "packet_id": 43981,
+      "generation_id": 4660,
+      "packet_type": 7,
+      "iv_struct": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "key": "5ca76872c432b77204180c5ce8af614a",
+      "nonce": "e0654261159dc04cdbb250b61e8ce0b5"
+    }
+  ],
+  "eax": [
+    {
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "101112131415161718191a1b1c1d1e1f",
+      "header": "cafebabe",
+      "plaintext": "",
+      "ciphertext": "",
+      "mac": "1a6861030ade5c70"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "101112131415161718191a1b1c1d1e1f",
+      "header": "cafebabe",
+      "plaintext": "00",
+      "ciphertext": "8e",
+      "mac": "032d65382bc907ba"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "101112131415161718191a1b1c1d1e1f",
+      "header": "cafebabe",
+      "plaintext": "00112233",
+      "ciphertext": "8e02462f",
+      "mac": "40a333a53d675250"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "101112131415161718191a1b1c1d1e1f",
+      "header": "cafebabe",
+      "plaintext": "00000000000000000000000000000000",
+      "ciphertext": "8e13641c990934f8c09c9a74e5dbbd99",
+      "mac": "ebca2f2e490ecf8f"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "101112131415161718191a1b1c1d1e1f",
+      "header": "cafebabe",
+      "plaintext": "00000000000000000000000000000000000000000000000000000000000000",
+      "ciphertext": "8e13641c990934f8c09c9a74e5dbbd9964e9d9ba0c15cce6a8ac872971fd48",
+      "mac": "9a16bbce7df987d1"
+    },
+    {
+      "key": "000102030405060708090a0b0c0d0e0f",
+      "nonce": "101112131415161718191a1b1c1d1e1f",
+      "header": "cafebabe",
+      "plaintext": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "ciphertext": "8e13641c990934f8c09c9a74e5dbbd9964e9d9ba0c15cce6a8ac872971fd4864c5ed531b7a8c33e5e648cbc51eed0aad498772b4be8e0fd2c49ae9cc6ddc16a3",
+      "mac": "30b8706ecdafdcb9"
+    }
+  ],
+  "eax_bad_mac": {
+    "key": "000102030405060708090a0b0c0d0e0f",
+    "nonce": "101112131415161718191a1b1c1d1e1f",
+    "header": "cafebabe",
+    "plaintext": "beef",
+    "ciphertext": "30fc",
+    "mac": "a72776cce08a7df9",
+    "expected": "null"
+  }
+}

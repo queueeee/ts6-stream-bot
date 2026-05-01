@@ -24,7 +24,6 @@ venv/
 Thumbs.db
 
 # Docker / runtime
-hls-output/
 *.log
 
 # Operator-implemented sources are local-only - never commit

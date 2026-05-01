@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,11 +37,6 @@ class Settings(BaseSettings):
     SCREEN_HEIGHT: int = 1080
     SCREEN_FPS: int = 30
 
-    # --- HLS encoder -------------------------------------------------------
-    HLS_OUTPUT_DIR: Path = Path("/var/hls")
-    HLS_SEGMENT_DURATION: int = 2
-    HLS_PLAYLIST_SIZE: int = 6
-
     # --- Audio -------------------------------------------------------------
     PULSE_SINK: str = "bot_sink"
     AUDIO_LOUDNORM: bool = Field(
@@ -51,8 +44,19 @@ class Settings(BaseSettings):
         description="Apply ffmpeg loudnorm filter to normalize audio loudness.",
     )
 
-    # --- Rooms -------------------------------------------------------------
-    DEFAULT_ROOM: str = "default"
+    # --- TS6 connection (used by phase 1+; placeholders for now) -----------
+    # The bot will speak the TS3 voice protocol directly to push audio + video
+    # into a TS6 channel via the built-in stream feature. These settings are
+    # accepted today but not yet wired - phase 0 only owns the public surface.
+    TS6_HOST: str = Field(default="", description="TS6 server host (DNS or IP).")
+    TS6_PORT: int = Field(default=9987, description="TS6 server voice port (UDP).")
+    TS6_NICKNAME: str = Field(default="ts6-stream-bot", description="Nickname the bot shows.")
+    TS6_SERVER_PASSWORD: str = Field(default="", description="Server password if any.")
+    TS6_DEFAULT_CHANNEL: str = Field(
+        default="",
+        description="Channel the bot auto-joins on connect (empty = default channel).",
+    )
+    TS6_CHANNEL_PASSWORD: str = Field(default="", description="Channel password if any.")
 
     @field_validator("BOT_API_KEY")
     @classmethod
