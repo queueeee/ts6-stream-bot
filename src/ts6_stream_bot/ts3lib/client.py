@@ -660,7 +660,16 @@ class Ts3Client:
 
         cmd_str = data.decode("utf-8", errors="replace")
         parsed = parse_command(cmd_str)
-        log.info("ts3.command_received", cmd=parsed.name, length=len(data))
+        # Log full text (truncated) so stream-related commands we don't yet
+        # parse explicitly still show up - and so a click that *should*
+        # produce notifyjoinstreamrequest but doesn't is unambiguous in the
+        # trace (no log line at all = nothing landed on our UDP socket).
+        log.info(
+            "ts3.command_received",
+            cmd=parsed.name,
+            length=len(data),
+            raw=cmd_str[:500],
+        )
 
         if self.on_command is not None:
             with self._guard():
@@ -924,11 +933,23 @@ class Ts3Client:
             self._cleanup()
 
     async def _ping_loop(self) -> None:
+        last_heartbeat = time.monotonic()
         try:
             while self._state == ClientState.CONNECTED:
                 await asyncio.sleep(1.0)
-                if self._state == ClientState.CONNECTED:
-                    self._send_outgoing(b"", PacketType.PING)
+                if self._state != ClientState.CONNECTED:
+                    break
+                self._send_outgoing(b"", PacketType.PING)
+                # Every 10s, log "still alive" with last-incoming-message age
+                # so a complete absence of incoming traffic is unambiguous.
+                now = time.monotonic()
+                if now - last_heartbeat >= 10.0:
+                    last_heartbeat = now
+                    log.info(
+                        "ts3.heartbeat",
+                        client_id=self._client_id,
+                        seconds_since_last_inbound=round(now - self._last_message_time, 1),
+                    )
         except asyncio.CancelledError:
             pass
 
