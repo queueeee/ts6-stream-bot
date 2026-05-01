@@ -150,6 +150,32 @@ class Settings(BaseSettings):
     TURN_USERNAME: str = Field(default="", description="TURN auth username.")
     TURN_PASSWORD: str = Field(default="", description="TURN auth password.")
 
+    # --- Encoder threading ------------------------------------------------
+    # libvpx's thread_count knob is the difference between "encoder uses
+    # all your cores at once" (which on a colocated TS6 host can starve
+    # the TS6 process long enough for its watchdog to kill it) and
+    # "encoder leaves cores for everything else". 0 = let the broadcaster
+    # auto-pick a safe value (cpu_count - 2, capped at 4).
+    ENCODER_THREAD_COUNT: int = Field(
+        default=0,
+        description=(
+            "Override for libvpx's thread_count. 0 = auto (cpu_count - 2, "
+            "max 4). Bump only if you've measured that the TS6 server has "
+            "headroom to spare and your encoder is the bottleneck."
+        ),
+    )
+    # cpu-used trades quality for speed. -16..16, lower = faster + lower
+    # quality. aiortc's default is -6; we mirror it. Drop to -8 / -10
+    # if your host can't keep up at the configured resolution.
+    ENCODER_CPU_USED: int = Field(
+        default=-6,
+        description=(
+            "libvpx cpu-used (-16..16). Lower is faster + lower quality. "
+            "Default -6 mirrors aiortc; -8 or -10 if encoder can't "
+            "sustain real-time."
+        ),
+    )
+
     # When the bot runs in `network_mode: host`, aiortc gathers a host
     # candidate for *every* interface in the host namespace - that
     # includes Docker's bridge gateways (172.16.0.0/12) which no
