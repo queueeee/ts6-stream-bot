@@ -43,6 +43,7 @@ from ts6_stream_bot.pipeline.stream_signaling import (
     SignalingType,
     StreamSignaling,
 )
+from ts6_stream_bot.pipeline.video_broadcaster import VideoBroadcaster
 from ts6_stream_bot.pipeline.video_capture import VideoCapture
 from ts6_stream_bot.ts3lib.client import Ts3Client
 
@@ -78,10 +79,12 @@ class StreamPublisher:
         client: Ts3Client,
         signaling: StreamSignaling,
         capture: VideoCapture,
+        video_broadcaster: VideoBroadcaster,
     ) -> None:
         self._client = client
         self._signaling = signaling
         self._capture = capture
+        self._video_broadcaster = video_broadcaster
 
         self._stream_id: str | None = None
         self._stream_started_event = asyncio.Event()
@@ -90,9 +93,11 @@ class StreamPublisher:
         self._lock = asyncio.Lock()
         # Track in-flight tasks so the GC doesn't clean them up mid-flight.
         self._tasks: set[asyncio.Task[None]] = set()
-        # MediaRelay fans out one source track to many per-viewer subscribers
-        # so two PeerConnections don't both call recv() on the same underlying
-        # track at the same time (would race on the parec / x11grab subprocess).
+        # MediaRelay still handles audio fan-out: one parec subprocess
+        # delivers raw PCM and we want each viewer's RTCRtpSender to read
+        # its own subscriber queue rather than race on the source. Video
+        # bypasses the relay entirely - it goes through the broadcaster
+        # which encodes once and ships pre-encoded packets per viewer.
         self._relay = MediaRelay()
 
         # Wire up signaling callbacks. We chain so existing handlers stay alive.
@@ -144,8 +149,10 @@ class StreamPublisher:
             return self._stream_id
 
         # Make sure the underlying ffmpeg pipelines are running before we
-        # accept any join requests.
+        # accept any join requests. Capture has to come up first so the
+        # broadcaster can resolve the source track factory.
         await self._capture.start()
+        await self._video_broadcaster.start()
 
         self._stream_started_event.clear()
         self._signaling.send_setup_stream(
@@ -160,6 +167,7 @@ class StreamPublisher:
         try:
             await asyncio.wait_for(self._stream_started_event.wait(), timeout=timeout)
         except TimeoutError:
+            await self._video_broadcaster.stop()
             await self._capture.stop()
             raise
 
@@ -170,6 +178,7 @@ class StreamPublisher:
     async def stop(self) -> None:
         """Kick all viewers, stopstream, and tear down capture."""
         if self._stream_id is None:
+            await self._video_broadcaster.stop()
             await self._capture.stop()
             return
 
@@ -193,6 +202,7 @@ class StreamPublisher:
         # we tear down ffmpeg out from under the encoder.
         await asyncio.sleep(0.5)
 
+        await self._video_broadcaster.stop()
         await self._capture.stop()
         self._stream_id = None
         log.info("stream_publisher.stopped", stream_id=stream_id)
@@ -314,12 +324,16 @@ class StreamPublisher:
                 ice=pc.iceConnectionState,
             )
 
-        # Each viewer needs its OWN track that pulls from the shared source
-        # via MediaRelay. Sharing the source track directly across PCs makes
-        # both senders call recv() concurrently and crashes parec's
-        # readexactly() with a "another coroutine is already waiting" error.
-        if self._capture.video_track is not None:
-            pc.addTrack(self._relay.subscribe(self._capture.video_track))
+        # Video: subscribe to the broadcaster's pre-encoded fan-out. The
+        # returned track yields ``av.Packet`` objects, which RTCRtpSender
+        # routes through ``encoder.pack()`` (RTP packetization only, no
+        # libvpx call) - so each viewer's encoder spend is microseconds
+        # rather than the ~750 MB per-viewer libvpx setup we used to pay
+        # with MediaRelay-on-raw-frames.
+        pc.addTrack(self._video_broadcaster.subscribe())
+        # Audio still goes through MediaRelay: parec produces raw PCM and
+        # each viewer's RTCRtpSender encodes Opus on its own. Opus is
+        # cheap enough that the broadcaster pattern doesn't pay back here.
         if self._capture.audio_track is not None:
             pc.addTrack(self._relay.subscribe(self._capture.audio_track))
 

@@ -121,6 +121,7 @@ ts6-stream-bot/
 │   │   ├── audio.py                  <- PulseAudio sink helpers (introspection)
 │   │   ├── audio_capture.py          <- PulseAudio -> Opus -> TS3 voice frames
 │   │   ├── video_capture.py          <- x11grab + Pulse via aiortc MediaPlayers
+│   │   ├── video_broadcaster.py      <- Single libvpx encoder, per-viewer av.Packet fan-out
 │   │   ├── stream_signaling.py       <- TS6 stream signaling (setupstream etc.)
 │   │   └── stream_publisher.py       <- Per-viewer aiortc RTCPeerConnection
 │   │
