@@ -8,7 +8,7 @@ from ts6_stream_bot.sources import SOURCES, _discover_operator_sources, resolve_
 from ts6_stream_bot.sources.browser_url import BrowserUrlSource
 from ts6_stream_bot.sources.direct_file import DirectFileSource
 from ts6_stream_bot.sources.twitch import TwitchSource
-from ts6_stream_bot.sources.youtube import YoutubeSource
+from ts6_stream_bot.sources.youtube import YoutubeSource, _to_embed_url
 
 
 @pytest.mark.parametrize(
@@ -35,6 +35,38 @@ def test_resolve_source(url: str, expected: type) -> None:
 def test_browser_url_source_is_last() -> None:
     """BrowserUrlSource MUST be last in registry - it's the catch-all fallback."""
     assert SOURCES[-1] is BrowserUrlSource
+
+
+@pytest.mark.parametrize(
+    "input_url,expected_id",
+    [
+        # Standard watch URL
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        # Short youtu.be link
+        ("https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        # Mobile m.youtube.com
+        ("https://m.youtube.com/watch?v=abc123XYZ_-", "abc123XYZ_-"),
+        # Watch URL with extra params (timestamps, lists, etc.)
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&list=RDxyz", "dQw4w9WgXcQ"),
+        # Already in embed form - leave the id intact
+        ("https://www.youtube.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ],
+)
+def test_youtube_to_embed_url_extracts_id(input_url: str, expected_id: str) -> None:
+    """The embed-URL rewrite must pull the right video id out of every
+    flavour of YouTube link the controller might be handed. Wrong id =
+    wrong video shipped to viewers."""
+    embed = _to_embed_url(input_url)
+    assert f"/embed/{expected_id}" in embed
+    assert "autoplay=1" in embed
+
+
+def test_youtube_to_embed_url_passes_through_unrecognised() -> None:
+    """If we can't parse a video id (someone passed a non-YouTube URL
+    via this code path by mistake), don't silently rewrite it to a
+    broken embed link."""
+    weird = "https://example.com/notyoutube"
+    assert _to_embed_url(weird) == weird
 
 
 def test_browser_url_source_accepts_anything_http() -> None:

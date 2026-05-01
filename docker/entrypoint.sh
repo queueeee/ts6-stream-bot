@@ -22,6 +22,7 @@ PULSE_PIDS=(
 
 cleanup() {
   log "shutting down ..."
+  [[ -n "${FLUXBOX_PID:-}" ]] && kill "$FLUXBOX_PID" 2>/dev/null || true
   [[ -n "${XVFB_PID:-}" ]] && kill "$XVFB_PID" 2>/dev/null || true
   [[ -n "${PULSE_PID:-}" ]] && kill "$PULSE_PID" 2>/dev/null || true
   # Belt-and-suspenders: wipe leftovers so the next start doesn't trip on
@@ -40,6 +41,7 @@ trap cleanup EXIT INT TERM
 # alive?" probe returns true and we get "Daemon already running".
 pkill -9 -x pulseaudio 2>/dev/null || true
 pkill -9 -x Xvfb 2>/dev/null || true
+pkill -9 -x fluxbox 2>/dev/null || true
 sleep 0.2
 rm -f "$XVFB_LOCK" "$XVFB_SOCKET" 2>/dev/null || true
 rm -f "${PULSE_PIDS[@]}" 2>/dev/null || true
@@ -68,6 +70,19 @@ if [[ ! -S "$XVFB_SOCKET" ]]; then
   exit 1
 fi
 log "Xvfb ready"
+
+# --- fluxbox window manager -----------------------------------------------
+# Without a WM, Chromium's --kiosk flag is silently dropped (it sends
+# EWMH _NET_WM_STATE_FULLSCREEN and there's no one to interpret it),
+# so the captured frame includes the browser chrome at the top.
+# fluxbox is the smallest WM that handles kiosk hints correctly.
+log "starting fluxbox"
+fluxbox -display "$DISPLAY" >/dev/null 2>&1 &
+FLUXBOX_PID=$!
+
+# Give it a moment to register as the WM. fluxbox doesn't expose a
+# ready signal but registration is fast - 200 ms is plenty.
+sleep 0.2
 
 # --- PulseAudio ------------------------------------------------------------
 log "starting PulseAudio (per-container, no system mode)"
