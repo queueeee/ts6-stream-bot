@@ -12,7 +12,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # System dependencies:
 # - xvfb: virtual X display
 # - pulseaudio: virtual audio sink + monitor source
-# - ffmpeg: capture pipeline (x11grab + pulse -> hls)
+# - ffmpeg: video/audio capture (x11grab + pulse) - feeds the TS6 voice + WebRTC pipeline
 # - chromium + deps: rendering engine for Playwright
 # - dbus, fonts, etc: chromium runtime needs
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -68,9 +68,6 @@ COPY docker/ ./docker/
 
 # Make entrypoint executable
 RUN chmod +x /app/docker/entrypoint.sh
-
-# Output dir for HLS segments (mounted as volume in compose)
-RUN mkdir -p /var/hls && chmod 777 /var/hls
 
 # Pulse runtime dir
 RUN mkdir -p /tmp/pulse && chmod 777 /tmp/pulse

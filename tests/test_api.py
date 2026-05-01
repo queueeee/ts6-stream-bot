@@ -17,31 +17,19 @@ def mock_controller():
     mock = AsyncMock(spec=StreamController)
     mock.startup = AsyncMock()
     mock.shutdown = AsyncMock()
-    mock.status = AsyncMock(
-        return_value=StreamStatus(state=StreamState.IDLE, room="default")
-    )
+    mock.status = AsyncMock(return_value=StreamStatus(state=StreamState.IDLE))
     mock.play = AsyncMock(
         return_value=StreamStatus(
             state=StreamState.PLAYING,
-            room="default",
             url="https://www.youtube.com/watch?v=test",
             title="Test",
             source_class="YoutubeSource",
-            stream_path="/stream/default/index.m3u8",
         )
     )
-    mock.pause = AsyncMock(
-        return_value=StreamStatus(state=StreamState.PAUSED, room="default")
-    )
-    mock.resume = AsyncMock(
-        return_value=StreamStatus(state=StreamState.PLAYING, room="default")
-    )
-    mock.seek = AsyncMock(
-        return_value=StreamStatus(state=StreamState.PLAYING, room="default")
-    )
-    mock.stop = AsyncMock(
-        return_value=StreamStatus(state=StreamState.IDLE, room="default")
-    )
+    mock.pause = AsyncMock(return_value=StreamStatus(state=StreamState.PAUSED))
+    mock.resume = AsyncMock(return_value=StreamStatus(state=StreamState.PLAYING))
+    mock.seek = AsyncMock(return_value=StreamStatus(state=StreamState.PLAYING))
+    mock.stop = AsyncMock(return_value=StreamStatus(state=StreamState.IDLE))
     mock.screenshot = AsyncMock(return_value=None)
     return mock
 
@@ -49,9 +37,7 @@ def mock_controller():
 @pytest.fixture
 def client(monkeypatch, mock_controller):
     """TestClient against an app whose lifespan instantiates our mock."""
-    monkeypatch.setattr(
-        "ts6_stream_bot.api.app.StreamController", lambda: mock_controller
-    )
+    monkeypatch.setattr("ts6_stream_bot.api.app.StreamController", lambda: mock_controller)
     app = create_app()
     with TestClient(app) as tc:
         yield tc
@@ -89,7 +75,7 @@ def test_play_with_api_key(client) -> None:
 
 
 def test_play_source_open_failure_returns_502(client, mock_controller) -> None:
-    mock_controller.play = AsyncMock(side_effect=SourceOpenError("ffmpeg crashed"))
+    mock_controller.play = AsyncMock(side_effect=SourceOpenError("source crashed"))
     r = client.post(
         "/play",
         json={"url": "https://www.youtube.com/watch?v=x"},
@@ -98,7 +84,7 @@ def test_play_source_open_failure_returns_502(client, mock_controller) -> None:
     assert r.status_code == 502
     body = r.json()
     assert body["error"] == "source_open_failed"
-    assert "ffmpeg crashed" in body["detail"]
+    assert "source crashed" in body["detail"]
 
 
 def test_invalid_payload(client) -> None:
@@ -109,12 +95,8 @@ def test_invalid_payload(client) -> None:
 def test_metrics_endpoint(client) -> None:
     r = client.get("/metrics")
     assert r.status_code == 200
-    # Either real prometheus output or the no-op shim - both are fine.
     body = r.text
-    assert (
-        "ts6_stream_bot_play_requests_total" in body
-        or "prometheus_client not installed" in body
-    )
+    assert "ts6_stream_bot_play_requests_total" in body or "prometheus_client not installed" in body
 
 
 def test_play_increments_metrics(client) -> None:

@@ -1,7 +1,9 @@
 # ts6-stream-bot stack
-# Drops into the existing ts6-net network alongside the TS6 server + manager.
-# The bot itself does NOT need to talk to TS6 - voice goes through the
-# regular TS6 client. The bot just renders + serves HLS.
+#
+# Single container. Renders YouTube/Twitch/etc. in a headful Chromium running
+# inside Xvfb, captures the frames + audio, and (post phase 1) speaks the TS3
+# voice protocol directly to push the result into a TS6 channel via the
+# server's built-in stream feature. No HLS, no second nginx container.
 
 services:
   bot:
@@ -15,39 +17,18 @@ services:
     # "out of shared memory" on big frames.
     shm_size: "1gb"
     volumes:
-      - hls-output:/var/hls
       # Mount sources read-only so a code edit doesn't require rebuild during dev
       - ./src:/app/src:ro
     ports:
       - "127.0.0.1:8080:8080"   # control API - keep local; expose via reverse proxy if needed
     networks:
       - ts6-net
-    # Healthcheck pings the FastAPI /health endpoint
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
-
-  hls:
-    image: nginx:alpine
-    container_name: ts6-stream-hls
-    restart: unless-stopped
-    volumes:
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./frontend:/usr/share/nginx/html:ro
-      - hls-output:/var/hls:ro
-    ports:
-      - "8081:80"               # public - this is what users open in their browser
-    networks:
-      - ts6-net
-    depends_on:
-      bot:
-        condition: service_healthy
-
-volumes:
-  hls-output:
 
 networks:
   ts6-net:

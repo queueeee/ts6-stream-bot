@@ -9,10 +9,6 @@ from ts6_stream_bot.pipeline import StreamState
 
 class PlayRequest(BaseModel):
     url: str = Field(..., description="Source URL to play (YouTube link, mp4, etc.)")
-    room: str | None = Field(
-        default=None,
-        description="Room name. Defaults to the DEFAULT_ROOM setting.",
-    )
 
 
 class SeekRequest(BaseModel):
@@ -21,12 +17,10 @@ class SeekRequest(BaseModel):
 
 class StatusResponse(BaseModel):
     state: StreamState
-    room: str
     url: str | None = None
     title: str | None = None
     source_class: str | None = None
     error: str | None = None
-    stream_path: str | None = None
 
 
 class HealthResponse(BaseModel):

@@ -56,7 +56,7 @@ async def get_metrics(request: Request) -> PlainTextResponse:
 async def play(req: PlayRequest, request: Request) -> StatusResponse:
     metrics.PLAY_REQUESTS.inc()
     try:
-        s = await _controller(request).play(url=req.url, room=req.room)
+        s = await _controller(request).play(url=req.url)
     except Exception:
         metrics.PLAY_FAILURES.inc()
         raise
