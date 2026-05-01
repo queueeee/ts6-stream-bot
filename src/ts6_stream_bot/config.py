@@ -108,8 +108,13 @@ class Settings(BaseSettings):
         ),
     )
     STREAM_VIEWER_LIMIT: int = Field(
-        default=-1,
-        description="Max viewers; -1 = unlimited (TS3 convention).",
+        default=4,
+        description=(
+            "Max concurrent viewers. Each viewer spins up its own VP8 encoder "
+            "(~280 MB RSS at 720p30); without a cap the bot can OOM the host "
+            "before the operator notices. -1 = unlimited (TS3 convention) - "
+            "only set this if you've measured memory under load."
+        ),
     )
 
     # --- WebRTC ICE -------------------------------------------------------

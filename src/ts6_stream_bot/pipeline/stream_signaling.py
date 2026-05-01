@@ -285,10 +285,13 @@ class StreamSignaling:
 
     # --- outbound commands ------------------------------------------------
 
-    def register_stream_notifications(self) -> None:
-        """Subscribe to the server-side notifications we need. Idempotent."""
-        for event in ("channel", "server", "textchannel"):
-            self._client.send_command(build_command("servernotifyregister", {"event": event}))
+    # Note: voice clients (which is what we are) receive stream-related
+    # notifications automatically by virtue of being in the channel; the
+    # ``servernotifyregister`` command is for ServerQuery clients only and
+    # the TS6 server replies with ``error id=516 invalid client type`` if
+    # we send it. The ts6-manager port we started from registered three
+    # events here because it ran as a ServerQuery client - that doesn't
+    # apply to us.
 
     def send_setup_stream(
         self,
