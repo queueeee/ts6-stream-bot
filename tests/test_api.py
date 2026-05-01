@@ -145,3 +145,38 @@ def test_screenshot_returns_png(client, mock_controller) -> None:
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
     assert r.content == png
+
+
+def test_audio_debug_requires_api_key(client) -> None:
+    r = client.get("/debug/audio")
+    assert r.status_code == 401
+
+
+def test_audio_debug_lists_sinks(client, monkeypatch) -> None:
+    from ts6_stream_bot.pipeline.audio import PulseSink
+
+    fake_sinks = [
+        PulseSink(
+            index=0,
+            name="bot_sink",
+            driver="module-null-sink.c",
+            sample_spec="s16le 2ch 44100Hz",
+            state="RUNNING",
+        ),
+    ]
+
+    async def fake_list_sinks() -> list[PulseSink]:
+        return fake_sinks
+
+    async def fake_default() -> str:
+        return "bot_sink"
+
+    monkeypatch.setattr("ts6_stream_bot.api.routes.list_sinks", fake_list_sinks)
+    monkeypatch.setattr("ts6_stream_bot.api.routes.get_default_sink", fake_default)
+
+    r = client.get("/debug/audio", headers={"X-API-Key": "test-key"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["default_sink"] == "bot_sink"
+    assert body["sinks"][0]["name"] == "bot_sink"
+    assert body["sinks"][0]["state"] == "RUNNING"

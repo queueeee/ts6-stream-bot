@@ -11,8 +11,9 @@ State transitions are guarded by an asyncio.Lock so concurrent requests can't ra
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 import structlog
 
@@ -32,7 +33,7 @@ class SourceOpenError(Exception):
     """
 
 
-class StreamState(str, Enum):
+class StreamState(StrEnum):
     IDLE = "idle"
     LOADING = "loading"
     PLAYING = "playing"
@@ -101,10 +102,8 @@ class StreamController:
                 self._error = str(exc)
                 self._state = StreamState.IDLE
                 # Best-effort cleanup
-                try:
+                with suppress(Exception):
                     await source.close()
-                except Exception:
-                    pass
                 if self._capture is not None:
                     await self._capture.stop()
                     self._capture = None
@@ -148,7 +147,8 @@ class StreamController:
         async with self._lock:
             if self._source is None or self._source.page is None:
                 return None
-            return await self._source.page.screenshot(type="png", full_page=False)
+            png: bytes = await self._source.page.screenshot(type="png", full_page=False)
+            return png
 
     # --- internals ---------------------------------------------------------
 

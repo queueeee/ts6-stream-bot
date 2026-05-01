@@ -60,5 +60,19 @@ addopts = "-v --tb=short"
 
 [tool.mypy]
 python_version = "3.11"
-strict = false  # TODO: enable progressively
+strict = true
 ignore_missing_imports = true
+files = ["src/ts6_stream_bot"]
+
+# Tests stay non-strict: pytest fixtures don't play well with strict typing
+# (the fixture/parametrize indirection produces lots of false positives) and
+# the value of strict-typing assertions in tests is low.
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+
+# Playwright / yt-dlp ship without complete type stubs.
+[[tool.mypy.overrides]]
+module = ["playwright.*", "yt_dlp.*"]
+ignore_missing_imports = true
+follow_imports = "skip"

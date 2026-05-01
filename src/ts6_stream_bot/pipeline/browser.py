@@ -8,6 +8,7 @@ acceleration disabled for the same reason.
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import structlog
@@ -35,7 +36,7 @@ class BrowserManager:
         log.info("browser.starting", display=settings.DISPLAY)
 
         # Make sure Chromium uses our PulseAudio sink
-        env = os.environ.copy()
+        env: dict[str, str | float | bool] = dict(os.environ)
         env["PULSE_SINK"] = settings.PULSE_SINK
         env["DISPLAY"] = settings.DISPLAY
 
@@ -69,22 +70,16 @@ class BrowserManager:
     async def stop(self) -> None:
         log.info("browser.stopping")
         if self._context is not None:
-            try:
+            with suppress(Exception):
                 await self._context.close()
-            except Exception:
-                pass
             self._context = None
         if self._browser is not None:
-            try:
+            with suppress(Exception):
                 await self._browser.close()
-            except Exception:
-                pass
             self._browser = None
         if self._pw is not None:
-            try:
+            with suppress(Exception):
                 await self._pw.stop()
-            except Exception:
-                pass
             self._pw = None
 
     @property

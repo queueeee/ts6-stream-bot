@@ -55,7 +55,8 @@ ts6-stream-bot/
 │   │   ├── __init__.py
 │   │   ├── controller.py           <- StreamController: orchestrates source + capture + encoder
 │   │   ├── browser.py              <- Playwright browser wrapper (headful, in Xvfb DISPLAY)
-│   │   └── capture.py              <- ffmpeg subprocess: x11grab + pulse -> HLS
+│   │   ├── capture.py              <- ffmpeg subprocess: x11grab + pulse -> HLS
+│   │   └── audio.py                <- PulseAudio sink/monitor wiring helpers
 │   │
 │   ├── sources/
 │   │   ├── __init__.py             <- registry: maps URL/type -> Source class
@@ -68,16 +69,22 @@ ts6-stream-bot/
 │   │       └── .gitkeep
 │   │
 │   └── utils/
-│       └── __init__.py             <- intentionally empty; reserve for future helpers
+│       ├── __init__.py
+│       ├── proc.py                 <- subprocess management with graceful shutdown
+│       └── paths.py                <- HLS filesystem + URL path helpers (single source of truth)
 │
 ├── tests/
 │   ├── conftest.py
 │   ├── test_sources.py             <- unit tests for source resolution
 │   ├── test_api.py                 <- FastAPI TestClient tests
 │   ├── test_settings.py            <- Settings validation
+│   ├── test_paths.py               <- HLS path helpers + room validation
 │   └── integration/                <- real-browser tests, skipped unless RUN_INTEGRATION=1
 │       ├── conftest.py
 │       └── test_smoke.py
+│
+├── .github/workflows/
+│   └── ci.yml                      <- ruff + mypy --strict + pytest on push/PR
 │
 ├── frontend/
 │   └── index.html                  <- hls.js player + control panel at /
@@ -201,7 +208,7 @@ RUN_INTEGRATION=1 pytest tests/integration/         # requires display + Chromiu
 
 ### Code style
 - Python 3.11+
-- Type hints everywhere. We run `mypy --strict` in CI (not yet configured — TODO).
+- Type hints everywhere. `mypy --strict` runs in CI against `src/`. Tests stay non-strict (fixture indirection produces too many false positives).
 - `ruff` for formatting and linting (see `pyproject.toml`).
 - No 1-letter variable names except classic `i, j, k` in loops.
 - Prefer dataclasses or pydantic models over dicts for any data crossing module boundaries.
@@ -255,12 +262,41 @@ Change defaults in `src/ts6_stream_bot/config.py` (`Settings`). Don't touch `pip
 - Do not introduce a database. State lives in memory in `StreamController`. If you really need persistence (e.g., last-played URL across restarts), use a single JSON file in a volume — not SQLite, not Redis.
 - Do not add authentication beyond the simple `X-API-Key` header. If you need user-level auth, the right answer is to put this behind a reverse proxy that handles it.
 
+## Out of Scope / Architectural Limits
+
+These are not "TODOs to grab" — they are deliberate non-goals or things that
+require a different approach than a code change here.
+
+### Subtitles / closed captions
+HLS itself supports `#EXT-X-MEDIA TYPE=SUBTITLES` with WebVTT segments, so on
+paper this is a TODO. In practice, the capture pipeline grabs the rendered
+**screen** (`x11grab`) — there is no separate subtitle track to multiplex into
+HLS. To make subtitles work you would need a side channel: each `StreamSource`
+extracts subtitle cues from the underlying media and the capture pipeline
+writes them to a parallel `subs.m3u8` playlist. That is real work, not a quick
+plumbing job, and most browser-rendered sources (YouTube, Twitch) burn captions
+into the video frame anyway. If this is wanted, the right starting point is
+`StreamSource` + a new `SubtitleTrack` abstraction; do **not** try to bolt it
+into `pipeline/capture.py` directly.
+
+### Multi-room / multi-stream
+One container runs exactly one Xvfb + one PulseAudio sink + one Chromium. Two
+concurrent streams would either share a display (bad — the browser windows
+would overlap and ffmpeg would capture both) or require parallel Xvfb/Pulse
+setups inside one container (operationally fragile). The supported answer is
+**horizontal scaling**: run more containers, route to them with a small reverse
+proxy (`/stream/<room>/...` → the right container). Do not turn
+`StreamController` into a multi-tenant dispatcher.
+
+### DRM-protected platforms (Netflix, Disney+, Prime Video, HBO Max, …)
+Out of scope, will not be added. See "Operator-Implemented Parts" above.
+
 ## Open TODOs (Good First Tasks)
 
-- `mypy --strict` configuration in `pyproject.toml` and CI workflow
-- Subtitle/caption track support (HLS supports it, just need to plumb)
-- Multi-room support (would require either restructuring `StreamController` or running multiple containers behind a router)
-- A CI workflow file (`.github/workflows/ci.yml`) that runs `ruff` + `pytest`
+- Per-source rate-limit / retry on `source.open()` failures
+- A small Vue/HTMX rewrite of `frontend/index.html` (current is hand-written JS)
+- Optional `yt-dlp` URL pre-resolution for cases where the browser-rendered
+  YouTube page is heavier than necessary
 
 ## Contact / Maintainership
 

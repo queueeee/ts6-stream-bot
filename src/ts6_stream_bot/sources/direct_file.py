@@ -7,6 +7,7 @@ a known media extension. Renders in a minimal HTML5 <video> wrapper.
 from __future__ import annotations
 
 import re
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import structlog
@@ -76,8 +77,6 @@ class DirectFileSource(StreamSource):
 
     async def close(self) -> None:
         if self._page is not None:
-            try:
+            with suppress(Exception):
                 await self._page.close()
-            except Exception:
-                pass
             self._page = None

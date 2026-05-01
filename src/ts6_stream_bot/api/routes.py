@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import PlainTextResponse, Response
 
 from ts6_stream_bot import __version__, metrics
 from ts6_stream_bot.api.auth import require_api_key
 from ts6_stream_bot.api.schemas import (
+    AudioDebugResponse,
     HealthResponse,
     PlayRequest,
+    PulseSinkInfo,
     SeekRequest,
     StatusResponse,
 )
 from ts6_stream_bot.pipeline import StreamController
+from ts6_stream_bot.pipeline.audio import get_default_sink, list_sinks
 
 router = APIRouter()
 
@@ -76,6 +81,22 @@ async def debug_screenshot(request: Request) -> Response:
             detail="no active source",
         )
     return Response(content=png, media_type="image/png")
+
+
+@router.get(
+    "/debug/audio",
+    response_model=AudioDebugResponse,
+    tags=["debug"],
+    dependencies=[Depends(require_api_key)],
+)
+async def debug_audio() -> AudioDebugResponse:
+    """List PulseAudio sinks and the default sink (helps diagnose audio routing)."""
+    sinks = await list_sinks()
+    default = await get_default_sink()
+    return AudioDebugResponse(
+        default_sink=default,
+        sinks=[PulseSinkInfo(**asdict(s)) for s in sinks],
+    )
 
 
 @router.post(
